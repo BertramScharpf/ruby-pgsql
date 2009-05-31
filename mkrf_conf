@@ -1,0 +1,26 @@
+#!/usr/bin/env rakonfig
+
+#
+#  mkrf_conf  --  configure BS-Ruby
+#
+
+require "rbconfig"
+
+incdir_ruby            RbConfig::CONFIG[ "topdir"]
+incdir_postgres        `pg_config --pkgincludedir`.chomp
+incdir_postgres_server `pg_config --includedir-server`.chomp
+
+have_library "crypto"
+have_library "ssl"
+have_library "pq"
+
+have_header "ruby.h"
+have_header "rubyio.h"
+have_header "st.h"
+
+have_header "postgres.h"
+have_header "libpq-fe.h"
+have_header "libpq/libpq-fs.h"
+have_header "catalog/pg_type.h"
+
+# vim:set ft=ruby :

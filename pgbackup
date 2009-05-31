@@ -1,0 +1,72 @@
+#!/usr/bin/ruby
+
+#
+#  pgbackup.rb  --  database backup
+#
+
+
+require "pgsql"
+
+class Backup < PGconn
+
+  # This was successfully tested with:
+  ARCHIVE_COMMAND =
+    'rsync -ar %p rsync://backupserver/backupdir/pg-myhost/XLOG/%f'
+  # XLOG must exist in the backup directory. No error will be reported.
+
+  def initialize db = nil, user = nil, pw = nil
+    super nil, nil, nil, nil, db, user, pw
+    exec "select pg_start_backup('pgsql-auto');"
+  end
+
+  def close
+    exec "select pg_stop_backup();"
+    super
+  end
+  alias finish close
+
+  def run
+    arch_cmd, = select_one "show archive_command;"
+    datadir,  = select_one "show data_directory;"
+    tblsp = query <<-ENDSQL
+      select spcname, spclocation from pg_tablespace
+        where length(spclocation)>0
+    ENDSQL
+    ([ ["@CLUSTER", datadir] ] + tblsp).each { |(nam,dir)|
+      # We rely on the fact that Postgresql removed all trailing slashes.
+      a = arch_cmd.dup
+      a.gsub! /%(.)/ do
+        case $1
+          when "p" then dir
+          when "f" then ""
+          when "%" then "%"
+        end
+      end
+      a.gsub! /\bXLOG\b/, nam
+      system a
+      raise RuntimeError, "#{a} => #$?" unless $?.success?
+    }
+  end
+
+  class <<self
+    def open db = nil, user = nil, pw = nil
+      b = new db, user, pw
+      begin
+        yield b
+      ensure
+        b.finish
+      end
+    end
+    def run db = nil, user = nil, pw = nil
+      open db, user, pw do |b|
+        b.run
+      end
+    end
+  end
+
+end
+
+if $0 ==__FILE__ then
+  Backup.run *$*
+end
+
