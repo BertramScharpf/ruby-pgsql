@@ -4,10 +4,20 @@
 
 require "rubygems"
 
+class Gem::Specification
+  def extract_version
+    File.open "pgsql.c" do |f|
+      f.each_line { |l|
+        l =~ /^\s*#define\s+VERSION\s+"(.*)"\s*$/ and return $1
+      }
+    end
+  end
+end
+
 SPEC = Gem::Specification.new do |s|
-  s.name              = "pgsgl"
-  s.rubyforge_project = "pgsgl"
-  s.version           = "0.9"
+  s.name              = "pgsql"
+  s.rubyforge_project = "pgsql"
+  s.version           = s.extract_version
   s.summary           = "PostgreSQL-API for Ruby"
   s.authors           = [ "Bertram Scharpf"]
   s.email             = "<software@bertram-scharpf.de>"

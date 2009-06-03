@@ -6,16 +6,21 @@
 
 #include <st.h>
 
+
+#define VERSION "0.9"
+
+
 static VALUE rb_cBigDecimal;
 static VALUE rb_cRational;
 static VALUE rb_cDate;
 static VALUE rb_cDateTime;
 
-static VALUE rb_cPGconn;
-static VALUE rb_cPGresult;
+static VALUE rb_mPg;
 static VALUE rb_ePGError;
 static VALUE rb_ePGExecError;
-static VALUE rb_cPGlarge;
+static VALUE rb_cPGConn;
+static VALUE rb_cPGResult;
+static VALUE rb_cPGLarge;
 static VALUE rb_cPGrow;
 
 static ID id_new;
@@ -377,7 +382,7 @@ format_array_element( obj)
                     2, rb_reg_new( "^|$", 3, 0), rb_str_new2("\""));
     }
     else {
-        return pgconn_s_format( rb_cPGconn, obj);
+        return pgconn_s_format( rb_cPGConn, obj);
     }
 }
 
@@ -752,7 +757,7 @@ pgconn_exec(argc, argv, obj)
                 values[i] = NULL;
             }
             else {
-                formatted = pgconn_s_format( rb_cPGconn, *ptr);
+                formatted = pgconn_s_format( rb_cPGConn, *ptr);
                 values[i] = STR2CSTR( formatted);
             }
         }
@@ -1409,7 +1414,7 @@ static VALUE
 pgconn_quote(obj,value)
     VALUE obj, value;
 {
-    return pgconn_s_quote(rb_cPGconn, value);
+    return pgconn_s_quote(rb_cPGConn, value);
 }
 
 /*
@@ -1530,7 +1535,7 @@ fetch_pgresult(result, row, column)
       return *string == 't' ? Qtrue : Qfalse;
 
     case BYTEAOID:
-      return pgconn_s_unescape_bytea(rb_cPGconn, rb_tainted_str_new2(string));
+      return pgconn_s_unescape_bytea(rb_cPGConn, rb_tainted_str_new2(string));
 
     case NUMERICOID:
       if (has_numeric_scale( PQfmod( result, column))) {
@@ -1568,7 +1573,7 @@ static VALUE
 pgresult_new(ptr)
     PGresult *ptr;
 {
-    return Data_Wrap_Struct(rb_cPGresult, 0, free_pgresult, ptr);
+    return Data_Wrap_Struct(rb_cPGResult, 0, free_pgresult, ptr);
 }
 
 /*
@@ -2406,7 +2411,7 @@ pglarge_new( conn, lo_oid ,lo_fd)
     VALUE obj;
     PGlarge *pglarge;
 
-    obj = Data_Make_Struct( rb_cPGlarge, PGlarge, 0, free_pglarge, pglarge);
+    obj = Data_Make_Struct( rb_cPGLarge, PGlarge, 0, free_pglarge, pglarge);
     pglarge->pgconn = conn;
     pglarge->lo_oid = lo_oid;
     pglarge->lo_fd = lo_fd;
@@ -2875,143 +2880,153 @@ Init_pgsql( void)
     rb_cDate       = RUBY_CLASS( "Date");
     rb_cDateTime   = RUBY_CLASS( "DateTime");
 
-    rb_ePGError = rb_define_class( "PGError", rb_eStandardError);
+    rb_mPg = rb_define_module( "Pg");
+
+    rb_ePGError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
+    rb_define_global_const( "PGError", rb_ePGError);
     rb_define_alias( rb_ePGError, "error", "message");
 
-    rb_ePGExecError = rb_define_class( "PGExecError", rb_ePGError);
+    rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
+    rb_define_global_const( "PGExecError", rb_ePGExecError);
     rb_define_method( rb_ePGExecError, "initialize", pgexecerror_init, -1);
     rb_define_method( rb_ePGExecError, "statement", pgexecerror_stmt, 0);
 
-    rb_cPGconn = rb_define_class( "PGconn", rb_cObject);
-    rb_define_alloc_func( rb_cPGconn, pgconn_alloc);
-    rb_define_singleton_method( rb_cPGconn, "connect", pgconn_s_connect, -1);
-    rb_define_singleton_alias( rb_cPGconn, "setdb", "connect");
-    rb_define_singleton_alias( rb_cPGconn, "setdblogin", "connect");
-    rb_define_singleton_alias( rb_cPGconn, "open", "connect");
+    rb_cPGConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
+    rb_define_global_const( "PGconn", rb_cPGConn);
+    rb_define_const( rb_cPGConn, "VERSION",
+                                  rb_obj_freeze( rb_str_new2( VERSION)));
+    rb_define_alloc_func( rb_cPGConn, pgconn_alloc);
+    rb_define_singleton_method( rb_cPGConn, "connect", pgconn_s_connect, -1);
+    rb_define_singleton_alias( rb_cPGConn, "setdb", "connect");
+    rb_define_singleton_alias( rb_cPGConn, "setdblogin", "connect");
+    rb_define_singleton_alias( rb_cPGConn, "open", "connect");
 
-    rb_define_singleton_method( rb_cPGconn, "escape", pgconn_s_escape, 1);
-    rb_define_singleton_method( rb_cPGconn, "quote", pgconn_s_quote, 1);
-    rb_define_singleton_alias( rb_cPGconn, "format", "quote");
-    rb_define_singleton_method( rb_cPGconn, "escape_bytea",
+    rb_define_singleton_method( rb_cPGConn, "escape", pgconn_s_escape, 1);
+    rb_define_singleton_method( rb_cPGConn, "quote", pgconn_s_quote, 1);
+    rb_define_singleton_alias( rb_cPGConn, "format", "quote");
+    rb_define_singleton_method( rb_cPGConn, "escape_bytea",
                                                     pgconn_s_escape_bytea, 1);
-    rb_define_singleton_method( rb_cPGconn, "unescape_bytea",
+    rb_define_singleton_method( rb_cPGConn, "unescape_bytea",
                                                   pgconn_s_unescape_bytea, 1);
-    rb_define_singleton_method( rb_cPGconn, "translate_results=",
+    rb_define_singleton_method( rb_cPGConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
 
-    rb_define_const( rb_cPGconn, "CONNECTION_OK", INT2FIX(CONNECTION_OK));
-    rb_define_const( rb_cPGconn, "CONNECTION_BAD", INT2FIX(CONNECTION_BAD));
+    rb_define_const( rb_cPGConn, "CONNECTION_OK", INT2FIX(CONNECTION_OK));
+    rb_define_const( rb_cPGConn, "CONNECTION_BAD", INT2FIX(CONNECTION_BAD));
 
-    rb_define_method( rb_cPGconn, "initialize", pgconn_init, -1);
-    rb_define_method( rb_cPGconn, "db", pgconn_db, 0);
-    rb_define_alias( rb_cPGconn, "dbname", "db");
-    rb_define_method( rb_cPGconn, "host", pgconn_host, 0);
-    rb_define_method( rb_cPGconn, "options", pgconn_options, 0);
-    rb_define_method( rb_cPGconn, "port", pgconn_port, 0);
-    rb_define_method( rb_cPGconn, "tty", pgconn_tty, 0);
-    rb_define_method( rb_cPGconn, "status", pgconn_status, 0);
-    rb_define_method( rb_cPGconn, "error", pgconn_error, 0);
-    rb_define_method( rb_cPGconn, "close", pgconn_close, 0);
-    rb_define_alias( rb_cPGconn, "finish", "close");
-    rb_define_method( rb_cPGconn, "reset", pgconn_reset, 0);
-    rb_define_method( rb_cPGconn, "user", pgconn_user, 0);
-    rb_define_method( rb_cPGconn, "trace", pgconn_trace, 1);
-    rb_define_method( rb_cPGconn, "untrace", pgconn_untrace, 0);
-    rb_define_method( rb_cPGconn, "exec", pgconn_exec, -1);
-    rb_define_method( rb_cPGconn, "query", pgconn_query, -1);
-    rb_define_method( rb_cPGconn, "select_one", pgconn_select_one, -1);
-    rb_define_method( rb_cPGconn, "select_value", pgconn_select_value, -1);
-    rb_define_method( rb_cPGconn, "select_values", pgconn_select_values, -1);
-    rb_define_method( rb_cPGconn, "async_exec", pgconn_async_exec, 1);
-    rb_define_method( rb_cPGconn, "async_query", pgconn_async_query, 1);
-    rb_define_method( rb_cPGconn, "get_notify", pgconn_get_notify, 0);
-    rb_define_method( rb_cPGconn, "insert_table", pgconn_insert_table, 2);
-    rb_define_method( rb_cPGconn, "transaction", pgconn_transaction, -1);
-    rb_define_method( rb_cPGconn, "putline", pgconn_putline, 1);
-    rb_define_method( rb_cPGconn, "getline", pgconn_getline, 0);
-    rb_define_method( rb_cPGconn, "endcopy", pgconn_endcopy, 0);
-    rb_define_method( rb_cPGconn, "on_notice", pgconn_on_notice, 0);
-    rb_define_method( rb_cPGconn, "transaction_status",
+    rb_define_method( rb_cPGConn, "initialize", pgconn_init, -1);
+    rb_define_method( rb_cPGConn, "db", pgconn_db, 0);
+    rb_define_alias( rb_cPGConn, "dbname", "db");
+    rb_define_method( rb_cPGConn, "host", pgconn_host, 0);
+    rb_define_method( rb_cPGConn, "options", pgconn_options, 0);
+    rb_define_method( rb_cPGConn, "port", pgconn_port, 0);
+    rb_define_method( rb_cPGConn, "tty", pgconn_tty, 0);
+    rb_define_method( rb_cPGConn, "status", pgconn_status, 0);
+    rb_define_method( rb_cPGConn, "error", pgconn_error, 0);
+    rb_define_method( rb_cPGConn, "close", pgconn_close, 0);
+    rb_define_alias( rb_cPGConn, "finish", "close");
+    rb_define_method( rb_cPGConn, "reset", pgconn_reset, 0);
+    rb_define_method( rb_cPGConn, "user", pgconn_user, 0);
+    rb_define_method( rb_cPGConn, "trace", pgconn_trace, 1);
+    rb_define_method( rb_cPGConn, "untrace", pgconn_untrace, 0);
+    rb_define_method( rb_cPGConn, "exec", pgconn_exec, -1);
+    rb_define_method( rb_cPGConn, "query", pgconn_query, -1);
+    rb_define_method( rb_cPGConn, "select_one", pgconn_select_one, -1);
+    rb_define_method( rb_cPGConn, "select_value", pgconn_select_value, -1);
+    rb_define_method( rb_cPGConn, "select_values", pgconn_select_values, -1);
+    rb_define_method( rb_cPGConn, "async_exec", pgconn_async_exec, 1);
+    rb_define_method( rb_cPGConn, "async_query", pgconn_async_query, 1);
+    rb_define_method( rb_cPGConn, "get_notify", pgconn_get_notify, 0);
+    rb_define_method( rb_cPGConn, "insert_table", pgconn_insert_table, 2);
+    rb_define_method( rb_cPGConn, "transaction", pgconn_transaction, -1);
+    rb_define_method( rb_cPGConn, "putline", pgconn_putline, 1);
+    rb_define_method( rb_cPGConn, "getline", pgconn_getline, 0);
+    rb_define_method( rb_cPGConn, "endcopy", pgconn_endcopy, 0);
+    rb_define_method( rb_cPGConn, "on_notice", pgconn_on_notice, 0);
+    rb_define_method( rb_cPGConn, "transaction_status",
                                                  pgconn_transaction_status, 0);
-    rb_define_method( rb_cPGconn, "protocol_version",
+    rb_define_method( rb_cPGConn, "protocol_version",
                                                    pgconn_protocol_version, 0);
-    rb_define_method( rb_cPGconn, "server_version", pgconn_server_version, 0);
-    rb_define_method( rb_cPGconn, "quote", pgconn_quote, 1);
-    rb_define_method( rb_cPGconn, "lastval", pgconn_lastval, 0);
+    rb_define_method( rb_cPGConn, "server_version", pgconn_server_version, 0);
+    rb_define_method( rb_cPGConn, "quote", pgconn_quote, 1);
+    rb_define_method( rb_cPGConn, "lastval", pgconn_lastval, 0);
 
-    rb_define_method( rb_cPGconn, "client_encoding", pgconn_client_encoding, 0);
-    rb_define_method( rb_cPGconn, "set_client_encoding",
+    rb_define_method( rb_cPGConn, "client_encoding", pgconn_client_encoding, 0);
+    rb_define_method( rb_cPGConn, "set_client_encoding",
                                                pgconn_set_client_encoding, 1);
 
 
-    rb_define_method( rb_cPGconn, "lo_import", pgconn_loimport, 1);
-    rb_define_alias( rb_cPGconn, "loimport", "lo_import");
-    rb_define_method( rb_cPGconn, "lo_create", pgconn_locreate, -1);
-    rb_define_alias( rb_cPGconn, "locreate", "lo_create");
-    rb_define_method( rb_cPGconn, "lo_open", pgconn_loopen, -1);
-    rb_define_alias( rb_cPGconn, "loopen", "lo_open");
-    rb_define_method( rb_cPGconn, "lo_export", pgconn_loexport, 2);
-    rb_define_alias( rb_cPGconn, "loexport", "lo_export");
-    rb_define_method( rb_cPGconn, "lo_unlink", pgconn_lounlink, 1);
-    rb_define_alias( rb_cPGconn, "lounlink", "lo_unlink");
+    rb_define_method( rb_cPGConn, "lo_import", pgconn_loimport, 1);
+    rb_define_alias( rb_cPGConn, "loimport", "lo_import");
+    rb_define_method( rb_cPGConn, "lo_create", pgconn_locreate, -1);
+    rb_define_alias( rb_cPGConn, "locreate", "lo_create");
+    rb_define_method( rb_cPGConn, "lo_open", pgconn_loopen, -1);
+    rb_define_alias( rb_cPGConn, "loopen", "lo_open");
+    rb_define_method( rb_cPGConn, "lo_export", pgconn_loexport, 2);
+    rb_define_alias( rb_cPGConn, "loexport", "lo_export");
+    rb_define_method( rb_cPGConn, "lo_unlink", pgconn_lounlink, 1);
+    rb_define_alias( rb_cPGConn, "lounlink", "lo_unlink");
 
-    rb_cPGlarge = rb_define_class( "PGlarge", rb_cObject);
-    rb_define_method( rb_cPGlarge, "oid", pglarge_oid, 0);
-    rb_define_method( rb_cPGlarge, "open", pglarge_open, -1);
-    rb_define_method( rb_cPGlarge, "close", pglarge_close, 0);
-    rb_define_method( rb_cPGlarge, "read", pglarge_read, -1);
-    rb_define_method( rb_cPGlarge, "write", pglarge_write, 1);
-    rb_define_method( rb_cPGlarge, "seek", pglarge_seek, 2);
-    rb_define_method( rb_cPGlarge, "tell", pglarge_tell, 0);
-    rb_define_method( rb_cPGlarge, "size", pglarge_size, 0);
-    rb_define_method( rb_cPGlarge, "export", pglarge_export, 1);
-    rb_define_method( rb_cPGlarge, "unlink", pglarge_unlink, 0);
+    rb_cPGLarge = rb_define_class_under( rb_mPg, "Large", rb_cObject);
+    rb_define_global_const( "PGlarge", rb_cPGLarge);
+    rb_define_method( rb_cPGLarge, "oid", pglarge_oid, 0);
+    rb_define_method( rb_cPGLarge, "open", pglarge_open, -1);
+    rb_define_method( rb_cPGLarge, "close", pglarge_close, 0);
+    rb_define_method( rb_cPGLarge, "read", pglarge_read, -1);
+    rb_define_method( rb_cPGLarge, "write", pglarge_write, 1);
+    rb_define_method( rb_cPGLarge, "seek", pglarge_seek, 2);
+    rb_define_method( rb_cPGLarge, "tell", pglarge_tell, 0);
+    rb_define_method( rb_cPGLarge, "size", pglarge_size, 0);
+    rb_define_method( rb_cPGLarge, "export", pglarge_export, 1);
+    rb_define_method( rb_cPGLarge, "unlink", pglarge_unlink, 0);
 
-    rb_define_const( rb_cPGlarge, "INV_WRITE", INT2FIX( INV_WRITE));
-    rb_define_const( rb_cPGlarge, "INV_READ", INT2FIX( INV_READ));
-    rb_define_const( rb_cPGlarge, "SEEK_SET", INT2FIX( SEEK_SET));
-    rb_define_const( rb_cPGlarge, "SEEK_CUR", INT2FIX( SEEK_CUR));
-    rb_define_const( rb_cPGlarge, "SEEK_END", INT2FIX( SEEK_END));
+    rb_define_const( rb_cPGLarge, "INV_WRITE", INT2FIX( INV_WRITE));
+    rb_define_const( rb_cPGLarge, "INV_READ", INT2FIX( INV_READ));
+    rb_define_const( rb_cPGLarge, "SEEK_SET", INT2FIX( SEEK_SET));
+    rb_define_const( rb_cPGLarge, "SEEK_CUR", INT2FIX( SEEK_CUR));
+    rb_define_const( rb_cPGLarge, "SEEK_END", INT2FIX( SEEK_END));
 
 
-    rb_cPGresult = rb_define_class( "PGresult", rb_cObject);
-    rb_include_module( rb_cPGresult, rb_mEnumerable);
+    rb_cPGResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
+    rb_define_global_const( "PGresult", rb_cPGResult);
+    rb_include_module( rb_cPGResult, rb_mEnumerable);
 
-    rb_define_const( rb_cPGresult, "EMPTY_QUERY", INT2FIX(PGRES_EMPTY_QUERY));
-    rb_define_const( rb_cPGresult, "COMMAND_OK", INT2FIX(PGRES_COMMAND_OK));
-    rb_define_const( rb_cPGresult, "TUPLES_OK", INT2FIX(PGRES_TUPLES_OK));
-    rb_define_const( rb_cPGresult, "COPY_OUT", INT2FIX(PGRES_COPY_OUT));
-    rb_define_const( rb_cPGresult, "COPY_IN", INT2FIX(PGRES_COPY_IN));
-    rb_define_const( rb_cPGresult, "BAD_RESPONSE", INT2FIX(PGRES_BAD_RESPONSE));
-    rb_define_const( rb_cPGresult, "NONFATAL_ERROR",
+    rb_define_const( rb_cPGResult, "EMPTY_QUERY", INT2FIX(PGRES_EMPTY_QUERY));
+    rb_define_const( rb_cPGResult, "COMMAND_OK", INT2FIX(PGRES_COMMAND_OK));
+    rb_define_const( rb_cPGResult, "TUPLES_OK", INT2FIX(PGRES_TUPLES_OK));
+    rb_define_const( rb_cPGResult, "COPY_OUT", INT2FIX(PGRES_COPY_OUT));
+    rb_define_const( rb_cPGResult, "COPY_IN", INT2FIX(PGRES_COPY_IN));
+    rb_define_const( rb_cPGResult, "BAD_RESPONSE", INT2FIX(PGRES_BAD_RESPONSE));
+    rb_define_const( rb_cPGResult, "NONFATAL_ERROR",
                                                 INT2FIX(PGRES_NONFATAL_ERROR));
-    rb_define_const( rb_cPGresult, "FATAL_ERROR", INT2FIX(PGRES_FATAL_ERROR));
+    rb_define_const( rb_cPGResult, "FATAL_ERROR", INT2FIX(PGRES_FATAL_ERROR));
 
-    rb_define_method( rb_cPGresult, "status", pgresult_status, 0);
-    rb_define_alias( rb_cPGresult, "result", "entries");
-    rb_define_alias( rb_cPGresult, "rows", "entries");
-    rb_define_method( rb_cPGresult, "each", pgresult_each, 0);
-    rb_define_method( rb_cPGresult, "[]", pgresult_aref, -1);
-    rb_define_method( rb_cPGresult, "fields", pgresult_fields, 0);
-    rb_define_method( rb_cPGresult, "num_tuples", pgresult_num_tuples, 0);
-    rb_define_method( rb_cPGresult, "num_fields", pgresult_num_fields, 0);
-    rb_define_method( rb_cPGresult, "fieldname", pgresult_fieldname, 1);
-    rb_define_method( rb_cPGresult, "fieldnum", pgresult_fieldnum, 1);
-    rb_define_method( rb_cPGresult, "type", pgresult_type, 1);
-    rb_define_method( rb_cPGresult, "size", pgresult_size, 1);
-    rb_define_method( rb_cPGresult, "getvalue", pgresult_getvalue, 2);
-    rb_define_method( rb_cPGresult, "getvalue_byname",
+    rb_define_method( rb_cPGResult, "status", pgresult_status, 0);
+    rb_define_alias( rb_cPGResult, "result", "entries");
+    rb_define_alias( rb_cPGResult, "rows", "entries");
+    rb_define_method( rb_cPGResult, "each", pgresult_each, 0);
+    rb_define_method( rb_cPGResult, "[]", pgresult_aref, -1);
+    rb_define_method( rb_cPGResult, "fields", pgresult_fields, 0);
+    rb_define_method( rb_cPGResult, "num_tuples", pgresult_num_tuples, 0);
+    rb_define_method( rb_cPGResult, "num_fields", pgresult_num_fields, 0);
+    rb_define_method( rb_cPGResult, "fieldname", pgresult_fieldname, 1);
+    rb_define_method( rb_cPGResult, "fieldnum", pgresult_fieldnum, 1);
+    rb_define_method( rb_cPGResult, "type", pgresult_type, 1);
+    rb_define_method( rb_cPGResult, "size", pgresult_size, 1);
+    rb_define_method( rb_cPGResult, "getvalue", pgresult_getvalue, 2);
+    rb_define_method( rb_cPGResult, "getvalue_byname",
                                                  pgresult_getvalue_byname, 2);
-    rb_define_method( rb_cPGresult, "getlength", pgresult_getlength, 2);
-    rb_define_method( rb_cPGresult, "getisnull", pgresult_getisnull, 2);
-    rb_define_method( rb_cPGresult, "cmdtuples", pgresult_cmdtuples, 0);
-    rb_define_method( rb_cPGresult, "cmdstatus", pgresult_cmdstatus, 0);
-    rb_define_method( rb_cPGresult, "oid", pgresult_oid, 0);
-    rb_define_method( rb_cPGresult, "print", pgresult_print, 2);
-    rb_define_method( rb_cPGresult, "clear", pgresult_clear, 0);
-    rb_define_alias( rb_cPGresult, "close", "clear");
+    rb_define_method( rb_cPGResult, "getlength", pgresult_getlength, 2);
+    rb_define_method( rb_cPGResult, "getisnull", pgresult_getisnull, 2);
+    rb_define_method( rb_cPGResult, "cmdtuples", pgresult_cmdtuples, 0);
+    rb_define_method( rb_cPGResult, "cmdstatus", pgresult_cmdstatus, 0);
+    rb_define_method( rb_cPGResult, "oid", pgresult_oid, 0);
+    rb_define_method( rb_cPGResult, "print", pgresult_print, 2);
+    rb_define_method( rb_cPGResult, "clear", pgresult_clear, 0);
+    rb_define_alias( rb_cPGResult, "close", "clear");
 
-    rb_cPGrow = rb_define_class( "PGrow", rb_cArray);
+    rb_cPGrow = rb_define_class_under( rb_mPg, "Row", rb_cArray);
+    rb_define_global_const( "PGrow", rb_cPGrow);
     rb_define_method( rb_cPGrow, "initialize", pgrow_init, 1);
     rb_define_method( rb_cPGrow, "[]", pgrow_aref, -1);
     rb_define_method( rb_cPGrow, "keys", pgrow_keys, 0);
