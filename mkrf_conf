@@ -1,4 +1,4 @@
-#!/usr/bin/env rakonfig
+#!/usr/bin/env autorake
 
 #
 #  mkrf_conf  --  configure BS-Ruby

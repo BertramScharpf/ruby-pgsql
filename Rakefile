@@ -3,7 +3,7 @@
 #
 
 
-require "rake/rakonfig"
+require "rake/autorake"
 
 extend Rake::Configure
 
