@@ -1,5 +1,5 @@
 #
-#  pgruby.gemspec  --  PgRuby Gem specification
+#  pgsql.gemspec  --  PgSql Gem specification
 #
 
 require "rubygems"
