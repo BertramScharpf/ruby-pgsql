@@ -299,7 +299,7 @@ pgconn_connect( argc, argv, self)
 
 /*
  * call-seq:
- *   PGconn.translate_results = boolean
+ *   Pg::Conn.translate_results = boolean
  *
  * When true (default), results are translated to appropriate ruby class.
  * When false, results are returned as +Strings+.
@@ -388,10 +388,10 @@ format_array_element( obj)
 
 /*
  * call-seq:
- *    PGconn.quote( obj )
- *    PGconn.quote( obj ) { |obj| ... }
- *    PGconn.format( obj )
- *    PGconn.format( obj ) { |obj| ... }
+ *    Pg::Conn.quote( obj )
+ *    Pg::Conn.quote( obj ) { |obj| ... }
+ *    Pg::Conn.format( obj )
+ *    Pg::Conn.format( obj ) { |obj| ... }
  *
  * If _obj_ has a method +to_postgres+, let that determine the String
  * representation for use in PostgreSQL.
@@ -485,7 +485,7 @@ build_key_value_string_i(key, value, result)
 
 /*
  * call-seq:
- *    PGconn.escape( str )
+ *    Pg::Conn.escape( str)
  *
  * Returns a SQL-safe version of the String _str_. Unlike #quote, does not
  * wrap the String in '...'.
@@ -510,7 +510,7 @@ pgconn_s_escape(self, string)
 
 /*
  * call-seq:
- *   PGconn.escape_bytea( obj )
+ *   Pg::Conn.escape_bytea( obj)
  *
  * Escapes binary data for use within an SQL command with the type +bytea+.
  *
@@ -552,7 +552,7 @@ pgconn_s_escape_bytea(self, obj)
 
 /*
  * call-seq:
- *   PGconn.unescape_bytea( obj )
+ *   Pg::Conn.unescape_bytea( obj )
  *
  * Converts an escaped string representation of binary data into binary data
  * --- the reverse of #escape_bytea. This is needed when retrieving +bytea+
@@ -586,9 +586,9 @@ pgconn_s_unescape_bytea(self, obj)
  * Document-method: new
  *
  * call-seq:
- *     PGconn.new(connection_hash, ...) -> PGconn
- *     PGconn.new(connection_string) -> PGconn
- *     PGconn.new(host, port, options, tty, dbname, login, passwd) ->  PGconn
+ *     Pg::Conn.new(connection_hash, ...) -> Pg::Conn
+ *     Pg::Conn.new(connection_string) -> Pg::Conn
+ *     Pg::Conn.new(host, port, options, tty, dbname, login, passwd) ->  Pg::Conn
  *
  *  _host_::     server hostname
  *  _port_::     server port number
@@ -626,10 +626,11 @@ get_pgconn(obj)
  * Document-method: connect
  *
  * call-seq:
- *     PGconn.connect(connection_hash, ...) -> PGconn
- *     PGconn.connect(connection_string) -> PGconn
- *     PGconn.connect(host, port, options, tty, dbname, login, passwd) ->
- *                                                                     PGconn
+ *     Pg::Conn.connect( connection_hash, ...) -> Pg::Conn
+ *     Pg::Conn.connect( connection_string)    -> Pg::Conn
+ *     Pg::Conn.connect( host, port, options, tty, dbname, login, passwd)
+ *                                             -> Pg::Conn
+ *     Pg::Conn.connect( ...) { |conn| ... }
  *
  *  _host_::     server hostname
  *  _port_::     server port number
@@ -723,7 +724,7 @@ yield_or_return_result(result)
  *    conn.exec( sql, *bind_values)
  *
  * Sends SQL query request specified by _sql_ to the PostgreSQL.
- * Returns a PGresult instance on success.
+ * Returns a Pg::Result instance on success.
  * On failure, it raises a PGError exception.
  *
  * +bind_values+ represents values for the PostgreSQL bind parameters found in
@@ -797,7 +798,7 @@ pgconn_exec(argc, argv, obj)
  *
  * Sends an asyncrhonous SQL query request specified by _sql_ to the
  * PostgreSQL server.
- * Returns a PGresult instance on success.
+ * Returns a Pg::Result instance on success.
  * On failure, it raises a PGError exception.
  */
 static VALUE
@@ -1408,7 +1409,7 @@ pgconn_server_version(obj)
  *    conn.quote( obj)
  *    conn.quote( obj) { |obj| ... }
  *
- * A shortcut for +PGconn.quote+. See there for further explanation.
+ * A shortcut for +Pg::Conn.quote+. See there for further explanation.
  */
 static VALUE
 pgconn_quote(obj,value)
@@ -1607,7 +1608,7 @@ fetch_pgrow(result, row_num)
     fields = fetch_fields( result);
     row = rb_funcall( rb_cPGrow, id_new, 1, fields);
     for (i = 0; i < RARRAY( fields)->len; i++) {
-        /* don't use push, PGrow is sized with nils in #new */
+        /* don't use push, Pg::Row is sized with nils in #new */
         rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
     }
     return row;
@@ -2120,7 +2121,7 @@ pgresult_print(obj, file, opt)
  *
  * Returns the number of tuples (rows) affected by the SQL command.
  *
- * If the SQL command that generated the PGresult was not one of +INSERT+,
+ * If the SQL command that generated the Pg::Result was not one of +INSERT+,
  * +UPDATE+, +DELETE+, +MOVE+, or +FETCH+, or if no tuples (rows) were
  * affected, <tt>0</tt> is returned.
  */
@@ -2164,7 +2165,7 @@ pgresult_oid(obj)
  * call-seq:
  *    res.clear()
  *
- * Clears the PGresult object as the result of the query.
+ * Clears the Pg::Result object as the result of the query.
  */
 static VALUE
 pgresult_clear( obj)
@@ -2206,9 +2207,9 @@ get_pglarge( obj)
 
 /*
  * call-seq:
- *    conn.lo_import(file) -> PGlarge
+ *    conn.lo_import(file) -> Pg::Large
  *
- * Import a file to a large object. Returns a PGlarge instance on success. On
+ * Import a file to a large object. Returns a Pg::Large instance on success. On
  * failure, it raises a PGError exception.
  */
 static VALUE
@@ -2276,10 +2277,10 @@ pglarge_close( obj)
 
 /*
  * call-seq:
- *    conn.lo_create( [mode] ) -> PGlarge
+ *    conn.lo_create( [mode] ) -> Pg::Large
  *    conn.lo_create( [mode] ) { |pglarge| ... } -> obj
  *
- * Returns a PGlarge instance on success. On failure, it raises PGError
+ * Returns a Pg::Large instance on success. On failure, it raises PGError
  * exception. <i>(See #lo_open for information on _mode_.)</i>
  *
  * If a block is given, the blocks result is returned.
@@ -2320,10 +2321,10 @@ pgconn_locreate(argc, argv, obj)
 
 /*
  * call-seq:
- *    conn.lo_open( oid, [mode] ) -> PGlarge
+ *    conn.lo_open( oid, [mode] ) -> Pg::Large
  *    conn.lo_open( oid, [mode] ) { |pglarge| ... } -> obj
  *
- * Open a large object of _oid_. Returns a PGlarge instance on success.
+ * Open a large object of _oid_. Returns a Pg::Large instance on success.
  * The _mode_ argument specifies the mode for the opened large object,
  * which is either +INV_READ+, or +INV_WRITE+.
  * * If _mode_ On failure, it raises a PGError exception.
@@ -2827,23 +2828,23 @@ pgrow_to_hash(self)
 
 /********************************************************************
  *
- * Document-class: PGconn
+ * Document-class: Pg::Conn
  *
  * The class to access PostgreSQL database.
  *
  * For example, to send query to the database on the localhost:
  *    require 'pgsql'
- *    conn = PGconn.open('dbname' => 'test1')
+ *    conn = Pg::Conn.open('dbname' => 'test1')
  *    res  = conn.exec('select * from a')
  *
- * See the PGresult class for information on working with the results of a
+ * See the Pg::Result class for information on working with the results of a
  * query.
  */
 
 
 /********************************************************************
  *
- * Document-class: PGresult
+ * Document-class: Pg::Result
  *
  * The class to represent the query result tuples (rows).
  * An instance of this class is created as the result of every query.
@@ -2854,7 +2855,7 @@ pgrow_to_hash(self)
 
 /********************************************************************
  *
- * Document-class: PGrow
+ * Document-class: Pg::Row
  *
  * Array subclass that provides hash-like behavior.
  */
@@ -2862,11 +2863,11 @@ pgrow_to_hash(self)
 
 /********************************************************************
  *
- * Document-class: PGlarge
+ * Document-class: Pg::Large
  *
  * The class to access large objects.
  * An instance of this class is created as the  result of
- * PGconn#lo_import, PGconn#lo_create, and PGconn#lo_open.
+ * Pg::Conn#lo_import, Pg::Conn#lo_create, and Pg::Conn#lo_open.
  */
 
 void
