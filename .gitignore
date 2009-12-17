@@ -1,0 +1,12 @@
+#
+#  .gitignore  --  File not to be checked in
+#
+
+.*.sw[ponm]
+.sw[pomn]
+
+.configure
+
+*.o
+*.so
+
