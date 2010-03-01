@@ -19,6 +19,11 @@ SPEC = Gem::Specification.new do |s|
   s.rubyforge_project = "pgsql"
   s.version           = s.extract_version
   s.summary           = "PostgreSQL-API for Ruby"
+  s.description       = <<EOT
+This was originally written by Guy Decoux. As the project wasn't
+maintained a long time after his death, I decided to fork my own
+version.
+EOT
   s.authors           = [ "Bertram Scharpf"]
   s.email             = "<software@bertram-scharpf.de>"
   s.homepage          = "http://www.bertram-scharpf.de"
@@ -26,7 +31,14 @@ SPEC = Gem::Specification.new do |s|
   s.has_rdoc          = true
   s.require_path      = "."
   s.extensions        = "mkrf_conf"
-  s.files             = Dir[ "**/*"].reject { |fn| fn =~ /\.gem$/ }
+  s.files             = %w(
+                          Rakefile
+                          mkrf_conf
+                          pgbackup
+                          pgsql.c
+                          pgsql.h
+                          undef.h
+                        )
 end
 
 if $0 == __FILE__ then
