@@ -1,5 +1,5 @@
 /*
- *  pgsql.c  --  PGxxx classes
+ *  pgsql.c  --  Pg::Xxx classes
  */
 
 #include "pgsql.h"
@@ -7,7 +7,7 @@
 #include <st.h>
 
 
-#define VERSION "0.9"
+#define VERSION "1.0"
 
 
 static VALUE rb_cBigDecimal;
@@ -142,7 +142,6 @@ static VALUE pgconn_lounlink( VALUE obj, VALUE lo_oid);
 static void free_pglarge( PGlarge *ptr);
 static VALUE pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd);
 static VALUE pglarge_oid( VALUE obj);
-static VALUE pglarge_open( int argc, VALUE *argv, VALUE obj);
 
 static int   large_tell(  PGlarge *pglarge);
 static int   large_lseek( PGlarge *pglarge, int offset, int whence);
@@ -2436,39 +2435,6 @@ pglarge_oid( obj)
     return INT2NUM( pglarge->lo_oid);
 }
 
-/*
- * call-seq:
- *    lrg.open( [mode] )
- *
- * Opens a large object.
- * The _mode_ argument specifies the mode for the opened large object,
- * which is either +INV_READ+ or +INV_WRITE+.
- */
-static VALUE
-pglarge_open( argc, argv, obj)
-    int argc;
-    VALUE *argv;
-    VALUE obj;
-{
-    VALUE nmode;
-    int mode;
-    PGlarge *pglarge;
-    int fd;
-
-    if (rb_scan_args(argc, argv, "01", &nmode) == 0)
-        mode = INV_READ;
-    else
-        mode = FIX2INT( nmode);
-
-    pglarge = get_pglarge(obj);
-    fd = lo_open(pglarge->pgconn, pglarge->lo_oid, mode);
-    if (fd < 0)
-        rb_raise(rb_ePGError, "cannot open large object");
-    pglarge->lo_fd = fd;
-
-    return INT2FIX( pglarge->lo_fd);
-}
-
 
 static int
 large_tell( pglarge)
@@ -2547,8 +2513,8 @@ pglarge_read( argc, argv, obj)
     int len;
     PGlarge *pglarge = get_pglarge(obj);
     VALUE str;
-    VALUE length;
 
+    VALUE length;
     rb_scan_args(argc, argv, "01", &length);
     if (NIL_P( length))
         return loread_all( obj);
@@ -2884,16 +2850,13 @@ Init_pgsql( void)
     rb_mPg = rb_define_module( "Pg");
 
     rb_ePGError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
-    rb_define_global_const( "PGError", rb_ePGError);
     rb_define_alias( rb_ePGError, "error", "message");
 
     rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
-    rb_define_global_const( "PGExecError", rb_ePGExecError);
     rb_define_method( rb_ePGExecError, "initialize", pgexecerror_init, -1);
     rb_define_method( rb_ePGExecError, "statement", pgexecerror_stmt, 0);
 
     rb_cPGConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
-    rb_define_global_const( "PGconn", rb_cPGConn);
     rb_define_const( rb_cPGConn, "VERSION",
                                   rb_obj_freeze( rb_str_new2( VERSION)));
     rb_define_alloc_func( rb_cPGConn, pgconn_alloc);
@@ -2969,9 +2932,7 @@ Init_pgsql( void)
     rb_define_alias( rb_cPGConn, "lounlink", "lo_unlink");
 
     rb_cPGLarge = rb_define_class_under( rb_mPg, "Large", rb_cObject);
-    rb_define_global_const( "PGlarge", rb_cPGLarge);
     rb_define_method( rb_cPGLarge, "oid", pglarge_oid, 0);
-    rb_define_method( rb_cPGLarge, "open", pglarge_open, -1);
     rb_define_method( rb_cPGLarge, "close", pglarge_close, 0);
     rb_define_method( rb_cPGLarge, "read", pglarge_read, -1);
     rb_define_method( rb_cPGLarge, "write", pglarge_write, 1);
@@ -2989,7 +2950,6 @@ Init_pgsql( void)
 
 
     rb_cPGResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
-    rb_define_global_const( "PGresult", rb_cPGResult);
     rb_include_module( rb_cPGResult, rb_mEnumerable);
 
     rb_define_const( rb_cPGResult, "EMPTY_QUERY", INT2FIX(PGRES_EMPTY_QUERY));
@@ -3027,7 +2987,6 @@ Init_pgsql( void)
     rb_define_alias( rb_cPGResult, "close", "clear");
 
     rb_cPGrow = rb_define_class_under( rb_mPg, "Row", rb_cArray);
-    rb_define_global_const( "PGrow", rb_cPGrow);
     rb_define_method( rb_cPGrow, "initialize", pgrow_init, 1);
     rb_define_method( rb_cPGrow, "[]", pgrow_aref, -1);
     rb_define_method( rb_cPGrow, "keys", pgrow_keys, 0);
