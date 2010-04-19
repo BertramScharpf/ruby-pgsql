@@ -41,7 +41,6 @@ static VALUE pgexecerror_stmt( VALUE self);
 static VALUE pgconn_alloc( VALUE klass);
 static PGconn *try_connectdb( VALUE arg);
 static PGconn *try_setdbLogin( VALUE args);
-static VALUE pgconn_connect( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_s_translate_results_set( VALUE self, VALUE fact);
 static VALUE format_single_element( VALUE obj);
 static VALUE pgconn_s_format( VALUE self, VALUE obj);
@@ -252,48 +251,6 @@ try_setdbLogin( args)
     AssignCheckedStringValue(pwd,    rb_ary_entry(args, 6));
 
     return PQsetdbLogin(host, port, opt, tty, dbname, login, pwd);
-}
-
-static VALUE
-pgconn_connect( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
-{
-    VALUE args;
-    PGconn *conn = NULL;
-
-    rb_scan_args(argc, argv, "0*", &args);
-    if (RARRAY(args)->len == 1) {
-        conn = try_connectdb(rb_ary_entry(args, 0));
-    } else {
-        if (RARRAY(args)->len == 0 ||
-                !NIL_P(rb_check_hash_type(rb_ary_entry(args, 0)))) {
-            int i;
-            VALUE arg, hsh;
-
-            arg = rb_hash_new();
-            for (i = 0; i < RARRAY(args)->len; ++i) {
-                hsh = rb_ary_entry(args, i);
-                if (!NIL_P(hsh)) {
-                    rb_funcall(arg, rb_intern("update"), 1, hsh);
-                }
-            }
-            conn = try_connectdb(arg);
-        }
-    }
-    if (conn == NULL) {
-        conn = try_setdbLogin( args);
-    }
-
-    if (PQstatus(conn) == CONNECTION_BAD) {
-        VALUE message = rb_str_new2(PQerrorMessage(conn));
-        PQfinish(conn);
-        rb_raise( rb_ePGError, STR2CSTR( message));
-    }
-
-    Data_Set_Struct(self, conn);
-    return self;
 }
 
 /*
@@ -606,7 +563,40 @@ pgconn_init(argc, argv, self)
     VALUE *argv;
     VALUE self;
 {
-    return pgconn_connect(argc, argv, self);
+    VALUE args;
+    PGconn *conn = NULL;
+
+    rb_scan_args(argc, argv, "0*", &args);
+    if (RARRAY(args)->len == 1) {
+        conn = try_connectdb(rb_ary_entry(args, 0));
+    } else {
+        if (RARRAY(args)->len == 0 ||
+                !NIL_P(rb_check_hash_type(rb_ary_entry(args, 0)))) {
+            int i;
+            VALUE arg, hsh;
+
+            arg = rb_hash_new();
+            for (i = 0; i < RARRAY(args)->len; ++i) {
+                hsh = rb_ary_entry(args, i);
+                if (!NIL_P(hsh)) {
+                    rb_funcall(arg, rb_intern("update"), 1, hsh);
+                }
+            }
+            conn = try_connectdb(arg);
+        }
+    }
+    if (conn == NULL) {
+        conn = try_setdbLogin( args);
+    }
+
+    if (PQstatus(conn) == CONNECTION_BAD) {
+        VALUE message = rb_str_new2(PQerrorMessage(conn));
+        PQfinish(conn);
+        rb_raise( rb_ePGError, STR2CSTR( message));
+    }
+
+    Data_Set_Struct(self, conn);
+    return self;
 }
 
 static PGconn*
