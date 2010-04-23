@@ -1689,11 +1689,12 @@ pgconn_select_values(argc, argv, self)
 
 /*
  * call-seq:
- *    res.each{ |tuple| ... }
+ *    res.each{ |tuple| ... }  ->  nil or int
  *
  * Invokes the block for each tuple (row) in the result.
  *
- * Equivalent to <tt>res.result.each{ |tuple| ... }</tt>.
+ * Return the number of rows the query resulted in, or +nil+ if there
+ * wasn't any (like <code>Numeric#nonzero?</code>).
  */
 static VALUE
 pgresult_each(self)
@@ -1701,14 +1702,13 @@ pgresult_each(self)
 {
     PGresult *result = get_pgresult(self);
     int row_count = PQntuples(result);
-    int row_num;
+    int row_num, r;
 
-    for (row_num = 0; row_num < row_count; row_num++) {
-        VALUE row = fetch_pgrow(result, row_num);
-        rb_yield(row);
+    for (row_num = 0, r = row_count; r ; row_num++, r--) {
+        rb_yield(fetch_pgrow(result, row_num));
     }
-
-    return self;
+    
+    return row_count ? INT2NUM(row_count) : Qnil;
 }
 
 /*
