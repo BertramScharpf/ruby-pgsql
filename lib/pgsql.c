@@ -7,9 +7,6 @@
 #include <st.h>
 
 
-#define VERSION "1.0"
-
-
 static VALUE rb_cBigDecimal;
 static VALUE rb_cRational;
 static VALUE rb_cDate;
@@ -17,7 +14,6 @@ static VALUE rb_cDateTime;
 
 static VALUE rb_mPg;
 static VALUE rb_ePGError;
-static VALUE rb_ePGExecError;
 static VALUE rb_ePGResError;
 static VALUE rb_cPGConn;
 static VALUE rb_cPGResult;
@@ -25,7 +21,7 @@ static VALUE rb_cPGLarge;
 static VALUE rb_cPGRow;
 
 static ID id_new;
-static ID id_transaction;
+static ID id_savepoints;
 static ID id_on_notice;
 static ID id_keys;
 static ID id_gsub;
@@ -170,6 +166,26 @@ static VALUE pgrow_to_hash( VALUE self);
 
 
 
+static PGresult *pqexec_safe( PGconn *conn, const char *cmd);
+static void      pg_raise( PGconn *conn);
+
+
+
+void pg_raise( PGconn * conn)
+{
+    rb_raise( rb_ePGError, PQerrorMessage( conn));
+}
+
+PGresult *pqexec_safe( PGconn * conn, const char *cmd)
+{
+    PGresult *result;
+
+    result = PQexec( conn, cmd);
+    if (result == NULL) {
+        pg_raise( conn);
+    }
+    return result;
+}
 
 
 
@@ -422,7 +438,7 @@ format_array_element( obj)
  * block is returned as a string.
  *
  * If _obj_ is not one of the recognized classes andno block is supplied,
- * a PGError is raised.
+ * a Pg::Error is raised.
  */
 static VALUE
 pgconn_s_quote(self, obj)
@@ -616,7 +632,7 @@ pgconn_s_unescape_bytea(self, obj)
  *  _login_::    login user name
  *  _passwd_::   login password
  *
- *  On failure, it raises a PGError exception.
+ *  On failure, it raises a Pg::Error exception.
  */
 static VALUE
 pgconn_init(argc, argv, self)
@@ -650,10 +666,8 @@ pgconn_init(argc, argv, self)
         conn = try_setdbLogin( args);
     }
 
-    if (PQstatus(conn) == CONNECTION_BAD) {
-        VALUE message = rb_str_new2(PQerrorMessage(conn));
-        PQfinish(conn);
-        rb_raise( rb_ePGError, STR2CSTR( message));
+    if (PQstatus( conn) == CONNECTION_BAD) {
+        pg_raise( conn);
     }
 
     Data_Set_Struct(self, conn);
@@ -667,7 +681,8 @@ get_pgconn(obj)
     PGconn *conn;
 
     Data_Get_Struct(obj, PGconn, conn);
-    if (conn == NULL) rb_raise(rb_ePGError, "closed connection");
+    if (conn == NULL)
+        rb_raise( rb_ePGError, "closed connection");
     return conn;
 }
 
@@ -694,7 +709,7 @@ get_pgconn(obj)
  *  If a block is given, the connection is closed after the block was
  *  executed.
  *
- *  On failure, it raises a PGError exception.
+ *  On failure, it raises a Pg::Error exception.
  */
 static VALUE
 pgconn_s_connect(argc, argv, klass)
@@ -749,7 +764,8 @@ get_pgresult(obj)
 {
     PGresult *result;
     Data_Get_Struct(obj, PGresult, result);
-    if (result == NULL) rb_raise(rb_ePGError, "query not performed");
+    if (result == NULL)
+        rb_raise( rb_ePGError, "query not performed");
     return result;
 }
 
@@ -768,7 +784,7 @@ yield_or_return_result(result)
  *
  * Sends SQL query request specified by _sql_ to the PostgreSQL.
  * Returns a Pg::Result instance on success.
- * On failure, it raises a PGError exception.
+ * On failure, it raises a Pg::Error exception.
  *
  * +bind_values+ represents values for the PostgreSQL bind parameters found in
  * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
@@ -788,7 +804,7 @@ pgconn_exec(argc, argv, obj)
     Check_Type( command, T_STRING);
 
     if (RARRAY( params)->len <= 0) {
-        result = PQexec( conn, STR2CSTR( command));
+        result = pqexec_safe( conn, STR2CSTR( command));
     } else {
         int len = RARRAY( params)->len;
         int i;
@@ -806,6 +822,8 @@ pgconn_exec(argc, argv, obj)
         }
         result = PQexecParams( conn, STR2CSTR( command), len,
                                 NULL, values, NULL, NULL, 0);
+        if (result == NULL)
+            pg_raise( conn);
     }
 
     return yield_or_return_result( pgresult_new( conn, result));
@@ -818,7 +836,7 @@ pgconn_exec(argc, argv, obj)
  * Sends an asyncrhonous SQL query request specified by _sql_ to the
  * PostgreSQL server.
  * Returns a Pg::Result instance on success.
- * On failure, it raises a PGError exception.
+ * On failure, it raises a Pg::Error exception.
  */
 static VALUE
 pgconn_async_exec(obj, str)
@@ -835,7 +853,7 @@ pgconn_async_exec(obj, str)
     while ((result = PQgetResult(conn)))
         PQclear(result);
     if (!PQsendQuery(conn, RSTRING(str)->ptr))
-        rb_raise(rb_ePGError, PQerrorMessage(conn));
+        pg_raise( conn);
     cs = PQsocket(conn);
     for(;;) {
         FD_ZERO(&rset);
@@ -846,7 +864,7 @@ pgconn_async_exec(obj, str)
         if (ret == 0)
             continue;
         if (PQconsumeInput(conn) == 0)
-            rb_raise(rb_ePGError, PQerrorMessage(conn));
+            pg_raise( conn);
         if (PQisBusy(conn) == 0)
             break;
     }
@@ -915,7 +933,7 @@ pgconn_get_notify(obj)
     VALUE ary;
 
     if (PQconsumeInput(conn) == 0) {
-        rb_raise(rb_ePGError, PQerrorMessage(conn));
+        pg_raise( conn);
     }
     /* gets notify and builds result */
     notify = PQnotifies(conn);
@@ -959,7 +977,7 @@ pgconn_insert_table( obj, table, values)
     i = RARRAY(values)->len;
     while (i--) {
         if (TYPE(RARRAY(RARRAY(values)->ptr[i])) != T_ARRAY) {
-            rb_raise(rb_ePGError,
+            rb_raise( rb_ePGError,
                      "second arg must contain some kind of arrays.");
         }
     }
@@ -969,10 +987,8 @@ pgconn_insert_table( obj, table, values)
     snprintf(RSTRING(buffer)->ptr, RSTRING(buffer)->len,
                 "copy %s from stdin ", STR2CSTR(table));
 
-    result = PQexec( conn, STR2CSTR( buffer));
-    if (!result)
-        rb_raise(rb_ePGError, PQerrorMessage(conn));
-    PQclear(result);
+    result = pqexec_safe( conn, STR2CSTR( buffer));
+    PQclear( result);
 
     for (i = 0; i < RARRAY(values)->len; i++) {
         struct RArray *row = RARRAY(RARRAY(values)->ptr[i]);
@@ -1003,12 +1019,19 @@ rescue_transaction( obj)
     VALUE obj;
 {
     PGconn *conn;
-    PGresult *result;
+    VALUE s;
+    char b_rol[ 48];
 
     conn = get_pgconn( obj);
-    result = PQexec( conn, "rollback");
-    if (!result)
-        rb_raise( rb_ePGError, PQerrorMessage( conn));
+    s = rb_ivar_get( obj, id_savepoints);
+
+    if (RARRAY( s)->len - 1 <= 0) {
+        sprintf( b_rol, "rollback");
+    } else {
+        sprintf( b_rol, "rollback to savepoint %s",
+                                        STR2CSTR( rb_ary_entry( s, 0)));
+    }
+    pqexec_safe( conn, b_rol);
     rb_exc_raise( ruby_errinfo);
     return Qnil;
 }
@@ -1017,7 +1040,10 @@ static VALUE
 ensure_transaction( obj)
     VALUE obj;
 {
-    rb_ivar_set( obj, id_transaction, Qnil);
+    VALUE s;
+
+    s = rb_ivar_get( obj, id_savepoints);
+    rb_ary_shift( s);
     return Qnil;
 }
 
@@ -1030,43 +1056,43 @@ yield_transaction( obj)
 
 /*
  * call-seq:
- *    conn.transaction( serializable = false) { |conn| ... }
+ *    conn.transaction { |conn| ... }
  *
- * Open and close a transaction block. If _serializable_ is true,
- * the isolation level will be 'serializable'.
+ * Open and close a transaction block. The blocks may be nested.
  */
 static VALUE
-pgconn_transaction( argc, argv, obj)
+pgconn_transaction( argc, argv, self)
     int argc;
     VALUE *argv;
-    VALUE obj;
+    VALUE self;
 {
     PGconn *conn;
-    VALUE serializable;
-    PGresult *r;
     VALUE result;
+    VALUE s, t;
+    char b_beg[ 32], b_com[ 32];
 
-    conn = get_pgconn( obj);
-    if (rb_scan_args(argc, argv, "01", &serializable) == 0)
-        serializable = Qnil;
-    serializable = RTEST( serializable) ? Qtrue : Qfalse;
+    conn = get_pgconn( self);
 
-    if (!NIL_P(rb_ivar_get( (VALUE) obj, id_transaction)) &&
-            serializable == rb_ivar_get( (VALUE) obj, id_transaction)) {
-        return rb_yield( obj);
+    s = rb_ivar_get( (VALUE) self, id_savepoints);
+    if (NIL_P( s)) {
+        s = rb_ary_new();
+        rb_ivar_set( self, id_savepoints, s);
     }
 
-    r = PQexec( conn, RTEST( serializable) ?
-                      "begin isolation level serializable" : "begin");
-    if (!r)
-        rb_raise( rb_ePGError, PQerrorMessage( conn));
-    rb_ivar_set( obj, id_transaction, serializable);
-
-    result = rb_ensure( yield_transaction, obj, ensure_transaction, obj);
-
-    r = PQexec( conn, "commit");
-    if (!r)
-        rb_raise( rb_ePGError, PQerrorMessage( conn));
+    if (RARRAY( s)->len == 0) {
+        t = Qnil;
+        rb_ary_unshift( s, rb_str_new( "pgsql_0000", 10));
+        sprintf( b_beg, "begin");
+        sprintf( b_com, "commit");
+    } else {
+        t = rb_funcall( rb_ary_entry( s, 0), rb_intern( "succ"), 0);
+        rb_ary_unshift( s, t);
+        sprintf( b_beg, "savepoint %s", STR2CSTR(t));
+        sprintf( b_com, "release savepoint %s", STR2CSTR(t));
+    }
+    pqexec_safe( conn, b_beg);
+    result = rb_ensure( yield_transaction, self, ensure_transaction, self);
+    pqexec_safe( conn, b_com);
     return result;
 }
 
@@ -1292,9 +1318,8 @@ static VALUE
 pgconn_error(obj)
     VALUE obj;
 {
-    char *error = PQerrorMessage(get_pgconn(obj));
-    if (!error) return Qnil;
-    return rb_tainted_str_new2(error);
+    char *error = PQerrorMessage( get_pgconn( obj));
+    return error != NULL ? rb_tainted_str_new2( error) : Qnil;
 }
 
 /*
@@ -1515,9 +1540,6 @@ pgresult_new( conn, result)
     PGresult *result;
 {
     VALUE res;
-
-    if (result == NULL)
-        rb_raise( rb_ePGExecError, PQerrorMessage( conn));
 
     switch (PQresultStatus( result)) {
     case PGRES_TUPLES_OK:
@@ -2191,7 +2213,7 @@ pgconn_loimport(obj, filename)
     conn = get_pgconn( obj);
     lo_oid = lo_import( conn, STR2CSTR( filename));
     if (lo_oid == 0)
-        rb_raise(rb_ePGError, PQerrorMessage( conn));
+        pg_raise( conn);
     return pglarge_new( conn, lo_oid, -1);
 }
 
@@ -2216,7 +2238,7 @@ pgconn_loexport( obj, lo_oid, filename)
 
     conn = get_pgconn( obj);
     if (!lo_export( conn, oid, STR2CSTR( filename)))
-        rb_raise( rb_ePGError, PQerrorMessage( conn));
+        pg_raise( conn);
     return Qnil;
 }
 
@@ -2576,15 +2598,13 @@ static VALUE
 pglarge_export(obj, filename)
     VALUE obj, filename;
 {
-    PGlarge *pglarge = get_pglarge(obj);
+    PGlarge *pglarge = get_pglarge( obj);
 
     Check_Type(filename, T_STRING);
 
-    if (!lo_export(pglarge->pgconn, pglarge->lo_oid,
-                                        STR2CSTR(filename))){
-        rb_raise(rb_ePGError, PQerrorMessage(pglarge->pgconn));
+    if (!lo_export( pglarge->pgconn, pglarge->lo_oid, STR2CSTR(filename))) {
+        pg_raise( pglarge->pgconn);
     }
-
     return Qnil;
 }
 
@@ -2601,7 +2621,7 @@ pglarge_unlink(obj)
     PGlarge *pglarge = get_pglarge(obj);
 
     if (!lo_unlink(pglarge->pgconn,pglarge->lo_oid)) {
-        rb_raise(rb_ePGError, PQerrorMessage(pglarge->pgconn));
+        pg_raise( pglarge->pgconn);
     }
     DATA_PTR(obj) = 0;
 
@@ -2819,8 +2839,6 @@ Init_pgsql( void)
 
     rb_ePGError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
 
-    rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
-
     rb_ePGResError = rb_define_class_under( rb_mPg, "ResultError", rb_ePGError);
     rb_define_method( rb_ePGResError, "status", pgreserror_status, 0);
     rb_define_method( rb_ePGResError, "sqlstate", pgreserror_sqlst, 0);
@@ -2969,12 +2987,12 @@ Init_pgsql( void)
     rb_define_method( rb_cPGRow, "each_value", pgrow_each_value, 0);
     rb_define_method( rb_cPGRow, "to_hash", pgrow_to_hash, 0);
 
-    id_new         = rb_intern( "new");
-    id_transaction = rb_intern( "transaction");
-    id_on_notice   = rb_intern( "@keys");
-    id_keys        = rb_intern( "@on_notice");
-    id_gsub        = rb_intern( "gsub");
-    id_gsub_bang   = rb_intern( "gsub!");
+    id_new        = rb_intern( "new");
+    id_savepoints = rb_intern( "savepoints");
+    id_on_notice  = rb_intern( "@keys");
+    id_keys       = rb_intern( "@on_notice");
+    id_gsub       = rb_intern( "gsub");
+    id_gsub_bang  = rb_intern( "gsub!");
 
     pg_escape_regex = rb_reg_new( "([\\t\\n\\\\])", 10, 0);
     rb_global_variable( &pg_escape_regex);

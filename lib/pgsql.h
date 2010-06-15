@@ -20,6 +20,11 @@
 #include "undef.h"
 
 
+
+#define VERSION "1.1"
+
+
+
 #define AssignCheckedStringValue(cstring, rstring) do { \
     if (!NIL_P(temp = rstring)) { \
         Check_Type(temp, T_STRING); \

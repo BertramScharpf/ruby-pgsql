@@ -6,7 +6,7 @@ require "rubygems"
 
 class Gem::Specification
   def extract_version
-    File.open "pgsql.c" do |f|
+    File.open "lib/pgsql.h" do |f|
       f.each_line { |l|
         l =~ /^\s*#define\s+VERSION\s+"(.*)"\s*$/ and return $1
       }
@@ -29,15 +29,14 @@ EOT
   s.homepage          = "http://www.bertram-scharpf.de"
   s.requirements      = "PostgreSQL"
   s.has_rdoc          = true
-  s.require_path      = "."
-  s.extensions        = "mkrf_conf"
+  s.extensions        = "lib/mkrf_conf"
   s.files             = %w(
-                          Rakefile
-                          mkrf_conf
-                          pgbackup
-                          pgsql.c
-                          pgsql.h
-                          undef.h
+                          lib/Rakefile
+                          lib/mkrf_conf
+                          lib/pgsql.c
+                          lib/pgsql.h
+                          lib/undef.h
+                          bin/pgbackup
                         )
 end
 
