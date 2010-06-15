@@ -10,6 +10,17 @@ VALUE rb_mPg;
 VALUE rb_ePGError;
 
 
+/* PostgreSQL API for Ruby */
+
+/********************************************************************
+ *
+ * Document-module: Pg
+ *
+ * The module to enclose everything.
+ *
+ * See the Pg::Conn class for information on opening a database.
+ */
+
 void init_pg_module( void)
 {
     rb_mPg = rb_define_module( "Pg");
