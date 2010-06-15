@@ -14,6 +14,7 @@ static VALUE rb_cDateTime;
 
 static VALUE rb_mPg;
 static VALUE rb_ePGError;
+static VALUE rb_ePGExecError;
 static VALUE rb_ePGResError;
 static VALUE rb_cPGConn;
 static VALUE rb_cPGResult;
@@ -167,13 +168,13 @@ static VALUE pgrow_to_hash( VALUE self);
 
 
 static PGresult *pqexec_safe( PGconn *conn, const char *cmd);
-static void      pg_raise( PGconn *conn);
+static void      pg_raise_exec( PGconn *conn);
 
 
 
-void pg_raise( PGconn * conn)
+void pg_raise_exec( PGconn * conn)
 {
-    rb_raise( rb_ePGError, PQerrorMessage( conn));
+    rb_raise( rb_ePGExecError, PQerrorMessage( conn));
 }
 
 PGresult *pqexec_safe( PGconn * conn, const char *cmd)
@@ -182,7 +183,7 @@ PGresult *pqexec_safe( PGconn * conn, const char *cmd)
 
     result = PQexec( conn, cmd);
     if (result == NULL) {
-        pg_raise( conn);
+        pg_raise_exec( conn);
     }
     return result;
 }
@@ -190,7 +191,7 @@ PGresult *pqexec_safe( PGconn * conn, const char *cmd)
 
 
 static VALUE
-pgreserror_new(result)
+pgreserror_new( result)
     PGresult *result;
 {
     VALUE res, argv[ 1];
@@ -201,10 +202,10 @@ pgreserror_new(result)
 }
 
 static VALUE
-pgreserror_status(self)
+pgreserror_status( self)
     VALUE self;
 {
-    return INT2NUM(PQresultStatus(get_pgresult(self)));
+    return INT2NUM( PQresultStatus( get_pgresult( self)));
 }
 
 /*
@@ -281,29 +282,29 @@ pgreserror_hint( self)
 
 
 static VALUE
-pgconn_alloc(klass)
+pgconn_alloc( klass)
     VALUE klass;
 {
-    return Data_Wrap_Struct(klass, 0, free_pgconn, NULL);
+    return Data_Wrap_Struct( klass, 0, free_pgconn, NULL);
 }
 
 
 static PGconn *
-try_connectdb(arg)
+try_connectdb( arg)
     VALUE arg;
 {
     VALUE conninfo;
 
-    if        (!NIL_P(conninfo = rb_check_string_type(arg))) {
+    if        (!NIL_P( conninfo = rb_check_string_type( arg))) {
         ;
-    } else if (!NIL_P(conninfo = rb_check_hash_type(arg))) {
+    } else if (!NIL_P( conninfo = rb_check_hash_type( arg))) {
         VALUE key_values = rb_ary_new2( RHASH( conninfo)->tbl->num_entries);
-        rb_hash_foreach(conninfo, build_key_value_string_i, key_values);
-        conninfo = rb_ary_join(key_values, rb_str_new2(" "));
+        rb_hash_foreach( conninfo, build_key_value_string_i, key_values);
+        conninfo = rb_ary_join( key_values, rb_str_new2( " "));
     } else {
         return NULL;
     }
-    return PQconnectdb(STR2CSTR(conninfo));
+    return PQconnectdb( STR2CSTR( conninfo));
 }
 
 static PGconn *
@@ -314,20 +315,20 @@ try_setdbLogin( args)
     char *host, *port, *opt, *tty, *dbname, *login, *pwd;
     host=port=opt=tty=dbname=login=pwd=NULL;
 
-    rb_funcall(args, rb_intern("flatten!"), 0);
+    rb_funcall( args, rb_intern( "flatten!"), 0);
 
     AssignCheckedStringValue( host, rb_ary_entry( args, 0));
-    if (!NIL_P(temp = rb_ary_entry(args, 1)) && NUM2INT(temp) != -1) {
-        temp = rb_obj_as_string(temp);
-        port = STR2CSTR(temp);
+    if (!NIL_P( temp = rb_ary_entry( args, 1)) && NUM2INT( temp) != -1) {
+        temp = rb_obj_as_string( temp);
+        port = STR2CSTR( temp);
     }
-    AssignCheckedStringValue(opt,    rb_ary_entry(args, 2));
-    AssignCheckedStringValue(tty,    rb_ary_entry(args, 3));
-    AssignCheckedStringValue(dbname, rb_ary_entry(args, 4));
-    AssignCheckedStringValue(login,  rb_ary_entry(args, 5));
-    AssignCheckedStringValue(pwd,    rb_ary_entry(args, 6));
+    AssignCheckedStringValue( opt,    rb_ary_entry( args, 2));
+    AssignCheckedStringValue( tty,    rb_ary_entry( args, 3));
+    AssignCheckedStringValue( dbname, rb_ary_entry( args, 4));
+    AssignCheckedStringValue( login,  rb_ary_entry( args, 5));
+    AssignCheckedStringValue( pwd,    rb_ary_entry( args, 6));
 
-    return PQsetdbLogin(host, port, opt, tty, dbname, login, pwd);
+    return PQsetdbLogin( host, port, opt, tty, dbname, login, pwd);
 }
 
 /*
@@ -371,7 +372,7 @@ format_single_element( obj)
     case T_ARRAY:
         result = rb_str_buf_new2( "'{");
         tainted = OBJ_TAINTED( obj);
-        for (i = 0; i < RARRAY(obj)->len; i++) {
+        for (i = 0; i < RARRAY( obj)->len; i++) {
             VALUE element = format_array_element( RARRAY( obj)->ptr[i]);
             if (OBJ_TAINTED( RARRAY( obj)->ptr[i])) tainted = Qtrue;
             if (i > 0) rb_str_buf_cat2( result, ",");
@@ -383,7 +384,7 @@ format_single_element( obj)
 
     default:
         if (CLASS_OF( obj) == rb_cBigDecimal) {
-            return rb_funcall(obj, rb_intern( "to_s"), 1, rb_str_new2( "F"));
+            return rb_funcall( obj, rb_intern( "to_s"), 1, rb_str_new2( "F"));
         } else {
             return Qundef;
         }
@@ -410,9 +411,9 @@ format_array_element( obj)
 {
     if (TYPE( obj) == T_STRING) {
         obj = rb_funcall( obj, id_gsub,
-                    2, rb_reg_new( "(?=[\\\\\"])", 9, 0), rb_str_new2("\\"));
+                    2, rb_reg_new( "(?=[\\\\\"])", 9, 0), rb_str_new2( "\\"));
         return rb_funcall( obj, id_gsub_bang,
-                    2, rb_reg_new( "^|$", 3, 0), rb_str_new2("\""));
+                    2, rb_reg_new( "^|$", 3, 0), rb_str_new2( "\""));
     }
     else {
         return pgconn_s_format( rb_cPGConn, obj);
@@ -441,14 +442,14 @@ format_array_element( obj)
  * a Pg::Error is raised.
  */
 static VALUE
-pgconn_s_quote(self, obj)
+pgconn_s_quote( self, obj)
     VALUE self, obj;
 {
     char* quoted;
     int size;
     VALUE result;
 
-    if (TYPE(obj) == T_STRING) {
+    if (TYPE( obj) == T_STRING) {
         quoted = ALLOCA_N( char, RSTRING( obj)->len * 2 + 2 + 1 + 1);
         quoted[ 0] = 'E';
         quoted[ 1] = SINGLE_QUOTE;
@@ -461,37 +462,37 @@ pgconn_s_quote(self, obj)
     else {
         ID pg_to_postgres;
 
-        pg_to_postgres = rb_intern("to_postgres");
-        if (rb_respond_to(obj,pg_to_postgres)) {
-            result = rb_funcall(obj, pg_to_postgres, 0);
-            if (OBJ_TAINTED(obj)) OBJ_TAINT(result);
+        pg_to_postgres = rb_intern( "to_postgres");
+        if (rb_respond_to( obj, pg_to_postgres)) {
+            result = rb_funcall( obj, pg_to_postgres, 0);
+            if (OBJ_TAINTED( obj)) OBJ_TAINT( result);
         }
         else {
             result = format_single_element( obj);
             if (result == Qundef) {
-                if (CLASS_OF(obj) == rb_cRational) {
+                if (CLASS_OF( obj) == rb_cRational) {
                     result = rb_obj_as_string( obj);
-                    rb_str_buf_cat2(result, ".0");
+                    rb_str_buf_cat2( result, ".0");
                 } else {
-                    result = rb_str_buf_new2("'");
-                    if (CLASS_OF(obj) == rb_cTime) {
+                    result = rb_str_buf_new2( "'");
+                    if (CLASS_OF( obj) == rb_cTime) {
                         rb_str_buf_append( result,
-                            rb_funcall(obj, rb_intern("iso8601"), 0));
-                        rb_str_buf_cat2(result, "'::timestamptz");
+                            rb_funcall( obj, rb_intern( "iso8601"), 0));
+                        rb_str_buf_cat2( result, "'::timestamptz");
                     }
-                    else if (CLASS_OF(obj) == rb_cDate) {
-                        rb_str_buf_append(result, rb_obj_as_string( obj));
-                        rb_str_buf_cat2(result, "'::date");
+                    else if (CLASS_OF( obj) == rb_cDate) {
+                        rb_str_buf_append( result, rb_obj_as_string( obj));
+                        rb_str_buf_cat2( result, "'::date");
                     }
-                    else if (CLASS_OF(obj) == rb_cDateTime) {
-                        rb_str_buf_append(result, rb_obj_as_string( obj));
-                        rb_str_buf_cat2(result, "'::timestamptz");
+                    else if (CLASS_OF( obj) == rb_cDateTime) {
+                        rb_str_buf_append( result, rb_obj_as_string( obj));
+                        rb_str_buf_cat2( result, "'::timestamptz");
                     } else {
-                        rb_str_buf_append(result, rb_obj_as_string( obj));
-                        rb_str_buf_cat2(result, "'::unknown");
+                        rb_str_buf_append( result, rb_obj_as_string( obj));
+                        rb_str_buf_cat2( result, "'::unknown");
                     }
                 }
-                if (OBJ_TAINTED(obj)) OBJ_TAINT(result);
+                if (OBJ_TAINTED( obj)) OBJ_TAINT( result);
             }
         }
         return result;
@@ -499,20 +500,20 @@ pgconn_s_quote(self, obj)
 }
 
 static int
-build_key_value_string_i(key, value, result)
+build_key_value_string_i( key, value, result)
     VALUE key, value, result;
 {
     VALUE key_value;
     if (key == Qundef) return ST_CONTINUE;
 #if 0
-    key_value = rb_obj_class(key) == rb_cString ?
-        rb_str_dup(key) : rb_funcall(key, rb_intern("to_s"), 0);
+    key_value = rb_obj_class( key) == rb_cString ?
+        rb_str_dup( key) : rb_funcall( key, rb_intern( "to_s"), 0);
 #else
-    key_value = rb_obj_as_string(key);
+    key_value = rb_obj_as_string( key);
 #endif
-    rb_str_cat(key_value, "=", 1);
-    rb_str_concat(key_value, value);
-    rb_ary_push(result, key_value);
+    rb_str_cat( key_value, "=", 1);
+    rb_str_concat( key_value, value);
+    rb_ary_push( result, key_value);
     return ST_CONTINUE;
 }
 
@@ -524,7 +525,7 @@ build_key_value_string_i(key, value, result)
  * wrap the String in '...'.
  */
 static VALUE
-pgconn_s_escape(self, string)
+pgconn_s_escape( self, string)
     VALUE self;
     VALUE string;
 {
@@ -532,12 +533,12 @@ pgconn_s_escape(self, string)
     int size;
     VALUE result;
 
-    Check_Type(string, T_STRING);
+    Check_Type( string, T_STRING);
 
-    escaped = ALLOCA_N(char, RSTRING(string)->len * 2 + 1);
-    size = PQescapeString(escaped, RSTRING(string)->ptr, RSTRING(string)->len);
-    result = rb_str_new(escaped, size);
-    OBJ_INFECT(result, string);
+    escaped = ALLOCA_N( char, RSTRING( string)->len * 2 + 1);
+    size = PQescapeString( escaped, RSTRING( string)->ptr, RSTRING( string)->len);
+    result = rb_str_new( escaped, size);
+    OBJ_INFECT( result, string);
     return result;
 }
 
@@ -560,7 +561,7 @@ pgconn_s_escape(self, string)
  * for more information.
  */
 static VALUE
-pgconn_s_escape_bytea(self, obj)
+pgconn_s_escape_bytea( self, obj)
     VALUE self;
     VALUE obj;
 {
@@ -568,17 +569,17 @@ pgconn_s_escape_bytea(self, obj)
     size_t from_len, to_len;
     VALUE ret;
 
-    Check_Type(obj, T_STRING);
-    from      = RSTRING(obj)->ptr;
-    from_len  = RSTRING(obj)->len;
+    Check_Type( obj, T_STRING);
+    from      = RSTRING( obj)->ptr;
+    from_len  = RSTRING( obj)->len;
 
-    to = (char *)PQescapeByteaConn( get_pgconn(obj),
-                    (unsigned char *)from, from_len, &to_len);
+    to = (char *) PQescapeByteaConn( get_pgconn( obj),
+                    (unsigned char *) from, from_len, &to_len);
 
-    ret = rb_str_new(to, to_len - 1);
-    OBJ_INFECT(ret, obj);
+    ret = rb_str_new( to, to_len - 1);
+    OBJ_INFECT( ret, obj);
 
-    PQfreemem(to);
+    PQfreemem( to);
 
     return ret;
 }
@@ -596,21 +597,21 @@ pgconn_s_escape_bytea(self, obj)
  * for more information.
  */
 static VALUE
-pgconn_s_unescape_bytea(self, obj)
+pgconn_s_unescape_bytea( self, obj)
     VALUE self, obj;
 {
     char *from, *to;
     size_t to_len;
     VALUE ret;
 
-    Check_Type(obj, T_STRING);
+    Check_Type( obj, T_STRING);
     from = STR2CSTR( obj);
 
-    to = (char *) PQunescapeBytea((unsigned char *)from, &to_len);
+    to = (char *) PQunescapeBytea( (unsigned char *)from, &to_len);
 
-    ret = rb_str_new(to, to_len);
-    OBJ_INFECT(ret, obj);
-    PQfreemem(to);
+    ret = rb_str_new( to, to_len);
+    OBJ_INFECT( ret, obj);
+    PQfreemem( to);
 
     return ret;
 }
@@ -619,9 +620,9 @@ pgconn_s_unescape_bytea(self, obj)
  * Document-method: new
  *
  * call-seq:
- *     Pg::Conn.new(connection_hash, ...) -> Pg::Conn
- *     Pg::Conn.new(connection_string) -> Pg::Conn
- *     Pg::Conn.new(host, port, options, tty, dbname, login, passwd) ->  Pg::Conn
+ *     Pg::Conn.new( connection_hash, ...) -> Pg::Conn
+ *     Pg::Conn.new( connection_string) -> Pg::Conn
+ *     Pg::Conn.new( host, port, options, tty, dbname, login, passwd) ->  Pg::Conn
  *
  *  _host_::     server hostname
  *  _port_::     server port number
@@ -635,7 +636,7 @@ pgconn_s_unescape_bytea(self, obj)
  *  On failure, it raises a Pg::Error exception.
  */
 static VALUE
-pgconn_init(argc, argv, self)
+pgconn_init( argc, argv, self)
     int argc;
     VALUE *argv;
     VALUE self;
@@ -643,23 +644,23 @@ pgconn_init(argc, argv, self)
     VALUE args;
     PGconn *conn = NULL;
 
-    rb_scan_args(argc, argv, "0*", &args);
-    if (RARRAY(args)->len == 1) {
-        conn = try_connectdb(rb_ary_entry(args, 0));
+    rb_scan_args( argc, argv, "0*", &args);
+    if (RARRAY( args)->len == 1) {
+        conn = try_connectdb( rb_ary_entry( args, 0));
     } else {
-        if (RARRAY(args)->len == 0 ||
-                !NIL_P(rb_check_hash_type(rb_ary_entry(args, 0)))) {
+        if (RARRAY( args)->len == 0 ||
+                !NIL_P( rb_check_hash_type( rb_ary_entry( args, 0)))) {
             int i;
             VALUE arg, hsh;
 
             arg = rb_hash_new();
-            for (i = 0; i < RARRAY(args)->len; ++i) {
-                hsh = rb_ary_entry(args, i);
-                if (!NIL_P(hsh)) {
-                    rb_funcall(arg, rb_intern("update"), 1, hsh);
+            for (i = 0; i < RARRAY( args)->len; ++i) {
+                hsh = rb_ary_entry( args, i);
+                if (!NIL_P( hsh)) {
+                    rb_funcall( arg, rb_intern( "update"), 1, hsh);
                 }
             }
-            conn = try_connectdb(arg);
+            conn = try_connectdb( arg);
         }
     }
     if (conn == NULL) {
@@ -667,20 +668,20 @@ pgconn_init(argc, argv, self)
     }
 
     if (PQstatus( conn) == CONNECTION_BAD) {
-        pg_raise( conn);
+        pg_raise_exec( conn);
     }
 
-    Data_Set_Struct(self, conn);
+    Data_Set_Struct( self, conn);
     return self;
 }
 
 static PGconn*
-get_pgconn(obj)
+get_pgconn( obj)
     VALUE obj;
 {
     PGconn *conn;
 
-    Data_Get_Struct(obj, PGconn, conn);
+    Data_Get_Struct( obj, PGconn, conn);
     if (conn == NULL)
         rb_raise( rb_ePGError, "closed connection");
     return conn;
@@ -712,15 +713,15 @@ get_pgconn(obj)
  *  On failure, it raises a Pg::Error exception.
  */
 static VALUE
-pgconn_s_connect(argc, argv, klass)
+pgconn_s_connect( argc, argv, klass)
     int argc;
     VALUE *argv;
     VALUE klass;
 {
-    VALUE pgconn = rb_class_new_instance(argc, argv, klass);
+    VALUE pgconn = rb_class_new_instance( argc, argv, klass);
 
     if (rb_block_given_p()) {
-        return rb_ensure(rb_yield, pgconn, pgconn_close, pgconn);
+        return rb_ensure( rb_yield, pgconn, pgconn_close, pgconn);
     }
 
     return pgconn;
@@ -734,11 +735,11 @@ pgconn_s_connect(argc, argv, klass)
  * Closes the backend connection.
  */
 static VALUE
-pgconn_close(obj)
+pgconn_close( obj)
     VALUE obj;
 {
-    PQfinish(get_pgconn(obj));
-    DATA_PTR(obj) = NULL;
+    PQfinish( get_pgconn( obj));
+    DATA_PTR( obj) = NULL;
     return Qnil;
 }
 
@@ -751,30 +752,30 @@ pgconn_close(obj)
  * and tries to re-connect.
  */
 static VALUE
-pgconn_reset(obj)
+pgconn_reset( obj)
     VALUE obj;
 {
-    PQreset(get_pgconn(obj));
+    PQreset( get_pgconn( obj));
     return obj;
 }
 
 static PGresult*
-get_pgresult(obj)
+get_pgresult( obj)
     VALUE obj;
 {
     PGresult *result;
-    Data_Get_Struct(obj, PGresult, result);
+    Data_Get_Struct( obj, PGresult, result);
     if (result == NULL)
         rb_raise( rb_ePGError, "query not performed");
     return result;
 }
 
 static VALUE
-yield_or_return_result(result)
+yield_or_return_result( result)
     VALUE result;
 {
     return RTEST( rb_block_given_p()) ?
-        rb_ensure(rb_yield, result, pgresult_clear, result) : result;
+        rb_ensure( rb_yield, result, pgresult_clear, result) : result;
 }
 
 
@@ -790,7 +791,7 @@ yield_or_return_result(result)
  * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
  */
 static VALUE
-pgconn_exec(argc, argv, obj)
+pgconn_exec( argc, argv, obj)
     int argc;
     VALUE *argv;
     VALUE obj;
@@ -823,7 +824,7 @@ pgconn_exec(argc, argv, obj)
         result = PQexecParams( conn, STR2CSTR( command), len,
                                 NULL, values, NULL, NULL, 0);
         if (result == NULL)
-            pg_raise( conn);
+            pg_raise_exec( conn);
     }
 
     return yield_or_return_result( pgresult_new( conn, result));
@@ -839,43 +840,43 @@ pgconn_exec(argc, argv, obj)
  * On failure, it raises a Pg::Error exception.
  */
 static VALUE
-pgconn_async_exec(obj, str)
+pgconn_async_exec( obj, str)
     VALUE obj, str;
 {
-    PGconn *conn = get_pgconn(obj);
+    PGconn *conn = get_pgconn( obj);
     PGresult *result;
     int cs;
     int ret;
     fd_set rset;
 
-    Check_Type(str, T_STRING);
+    Check_Type( str, T_STRING);
 
-    while ((result = PQgetResult(conn)))
-        PQclear(result);
-    if (!PQsendQuery(conn, RSTRING(str)->ptr))
-        pg_raise( conn);
-    cs = PQsocket(conn);
+    while ((result = PQgetResult( conn)))
+        PQclear( result);
+    if (!PQsendQuery( conn, RSTRING( str)->ptr))
+        pg_raise_exec( conn);
+    cs = PQsocket( conn);
     for(;;) {
         FD_ZERO(&rset);
-        FD_SET(cs, &rset);
-        ret = rb_thread_select(cs + 1, &rset, NULL, NULL, NULL);
+        FD_SET( cs, &rset);
+        ret = rb_thread_select( cs + 1, &rset, NULL, NULL, NULL);
         if (ret < 0)
-            rb_sys_fail(0);
+            rb_sys_fail( 0);
         if (ret == 0)
             continue;
-        if (PQconsumeInput(conn) == 0)
-            pg_raise( conn);
-        if (PQisBusy(conn) == 0)
+        if (PQconsumeInput( conn) == 0)
+            pg_raise_exec( conn);
+        if (PQisBusy( conn) == 0)
             break;
     }
 
-    result = PQgetResult(conn);
+    result = PQgetResult( conn);
     return yield_or_return_result( pgresult_new( conn, result));
 }
 
 /*
  * call-seq:
- *    conn.query(sql, *bind_values)
+ *    conn.query( sql, *bind_values)
  *
  * Sends SQL query request specified by _sql_ to the PostgreSQL.
  * Returns an Array as the resulting tuple on success.
@@ -886,20 +887,20 @@ pgconn_async_exec(obj, str)
  * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
  */
 static VALUE
-pgconn_query(argc, argv, obj)
+pgconn_query( argc, argv, obj)
     int argc;
     VALUE *argv;
     VALUE obj;
 {
     VALUE result;
 
-    result = rb_funcall2(obj, rb_intern("exec"), argc, argv);
+    result = rb_funcall2( obj, rb_intern( "exec"), argc, argv);
     return pgresult_result_with_clear( result);
 }
 
 /*
  * call-seq:
- *    conn.async_query(sql)
+ *    conn.async_query( sql)
  *
  * Sends an asynchronous SQL query request specified by _sql_ to the
  * PostgreSQL server.
@@ -908,12 +909,12 @@ pgconn_query(argc, argv, obj)
  * #error.
  */
 static VALUE
-pgconn_async_query(obj, str)
+pgconn_async_query( obj, str)
     VALUE obj, str;
 {
     VALUE result;
 
-    result = rb_funcall(obj, rb_intern("async_exec"), 1, str);
+    result = rb_funcall( obj, rb_intern( "async_exec"), 1, str);
     return pgresult_result_with_clear( result);
 }
 
@@ -925,32 +926,32 @@ pgconn_async_query(obj, str)
  * If there is no unprocessed notifier, it returns +nil+.
  */
 static VALUE
-pgconn_get_notify(obj)
+pgconn_get_notify( obj)
     VALUE obj;
 {
-    PGconn* conn = get_pgconn(obj);
+    PGconn* conn = get_pgconn( obj);
     PGnotify *notify;
     VALUE ary;
 
-    if (PQconsumeInput(conn) == 0) {
-        pg_raise( conn);
+    if (PQconsumeInput( conn) == 0) {
+        pg_raise_exec( conn);
     }
     /* gets notify and builds result */
-    notify = PQnotifies(conn);
+    notify = PQnotifies( conn);
     if (notify == NULL) {
         /* there are no unhandled notifications */
         return Qnil;
     }
-    ary = rb_ary_new3(2, rb_tainted_str_new2(notify->relname),
-                            INT2NUM(notify->be_pid));
-    PQfreemem(notify);
+    ary = rb_ary_new3( 2, rb_tainted_str_new2( notify->relname),
+                            INT2NUM( notify->be_pid));
+    PQfreemem( notify);
 
     /* returns result */
     return ary;
 }
 
 static void
-free_pgconn(ptr)
+free_pgconn( ptr)
     PGconn *ptr;
 {
     PQfinish( ptr);
@@ -966,49 +967,49 @@ static VALUE
 pgconn_insert_table( obj, table, values)
     VALUE obj, table, values;
 {
-    PGconn *conn = get_pgconn(obj);
+    PGconn *conn = get_pgconn( obj);
     PGresult *result;
     VALUE s, buffer;
     int i, j;
     int res = 0;
 
-    Check_Type(table, T_STRING);
-    Check_Type(values, T_ARRAY);
-    i = RARRAY(values)->len;
+    Check_Type( table, T_STRING);
+    Check_Type( values, T_ARRAY);
+    i = RARRAY( values)->len;
     while (i--) {
-        if (TYPE(RARRAY(RARRAY(values)->ptr[i])) != T_ARRAY) {
+        if (TYPE( RARRAY( RARRAY( values)->ptr[i])) != T_ARRAY) {
             rb_raise( rb_ePGError,
                      "second arg must contain some kind of arrays.");
         }
     }
 
-    buffer = rb_str_new(0, RSTRING(table)->len + 17 + 1);
+    buffer = rb_str_new( 0, RSTRING( table)->len + 17 + 1);
     /* starts query */
-    snprintf(RSTRING(buffer)->ptr, RSTRING(buffer)->len,
-                "copy %s from stdin ", STR2CSTR(table));
+    snprintf( RSTRING( buffer)->ptr, RSTRING( buffer)->len,
+                "copy %s from stdin ", STR2CSTR( table));
 
     result = pqexec_safe( conn, STR2CSTR( buffer));
     PQclear( result);
 
-    for (i = 0; i < RARRAY(values)->len; i++) {
-        struct RArray *row = RARRAY(RARRAY(values)->ptr[i]);
-        buffer = rb_tainted_str_new(0,0);
+    for (i = 0; i < RARRAY( values)->len; i++) {
+        struct RArray *row = RARRAY( RARRAY( values)->ptr[i]);
+        buffer = rb_tainted_str_new( 0, 0);
         for (j = 0; j < row->len; j++) {
-            if (j > 0) rb_str_cat(buffer, "\t", 1);
-            if (NIL_P(row->ptr[j])) {
-                rb_str_cat(buffer, "\\N",2);
+            if (j > 0) rb_str_cat( buffer, "\t", 1);
+            if (NIL_P( row->ptr[j])) {
+                rb_str_cat( buffer, "\\N", 2);
             } else {
-                s = rb_obj_as_string(row->ptr[j]);
+                s = rb_obj_as_string( row->ptr[j]);
                 rb_funcall( s, id_gsub_bang, 2, pg_escape_regex, pg_escape_str);
-                rb_str_cat(buffer, STR2CSTR(s), RSTRING(s)->len);
+                rb_str_cat( buffer, STR2CSTR( s), RSTRING( s)->len);
             }
         }
-        rb_str_cat(buffer, "\n\0", 2);
+        rb_str_cat( buffer, "\n\0", 2);
         /* sends data */
-        PQputline(conn, STR2CSTR(buffer));
+        PQputline( conn, STR2CSTR( buffer));
     }
-    PQputline(conn, "\\.\n");
-    res = PQendcopy(conn);
+    PQputline( conn, "\\.\n");
+    res = PQendcopy( conn);
 
     return obj;
 }
@@ -1087,8 +1088,8 @@ pgconn_transaction( argc, argv, self)
     } else {
         t = rb_funcall( rb_ary_entry( s, 0), rb_intern( "succ"), 0);
         rb_ary_unshift( s, t);
-        sprintf( b_beg, "savepoint %s", STR2CSTR(t));
-        sprintf( b_com, "release savepoint %s", STR2CSTR(t));
+        sprintf( b_beg, "savepoint %s", STR2CSTR( t));
+        sprintf( b_com, "release savepoint %s", STR2CSTR( t));
     }
     pqexec_safe( conn, b_beg);
     result = rb_ensure( yield_transaction, self, ensure_transaction, self);
@@ -1105,11 +1106,11 @@ pgconn_transaction( argc, argv, self)
  * Users must send a single "." to denote the end of data transmission.
  */
 static VALUE
-pgconn_putline(obj, str)
+pgconn_putline( obj, str)
     VALUE obj, str;
 {
-    Check_Type(str, T_STRING);
-    PQputline(get_pgconn(obj), STR2CSTR(str));
+    Check_Type( str, T_STRING);
+    PQputline( get_pgconn( obj), STR2CSTR( str));
     return obj;
 }
 
@@ -1125,29 +1126,29 @@ pgconn_putline(obj, str)
  * copy protocol right.
  */
 static VALUE
-pgconn_getline(obj)
+pgconn_getline( obj)
     VALUE obj;
 {
-    PGconn *conn = get_pgconn(obj);
+    PGconn *conn = get_pgconn( obj);
     VALUE str;
     long size = BUFSIZ;
     long bytes = 0;
     int  ret;
 
-    str = rb_tainted_str_new(0, size);
+    str = rb_tainted_str_new( 0, size);
 
     for (;;) {
-        ret = PQgetline(conn, RSTRING(str)->ptr + bytes, size - bytes);
+        ret = PQgetline( conn, RSTRING( str)->ptr + bytes, size - bytes);
         switch (ret) {
         case EOF:
             return Qnil;
         case 0:
-            rb_str_resize(str, strlen(STR2CSTR(str)));
+            rb_str_resize( str, strlen( STR2CSTR( str)));
             return str;
         }
         bytes += BUFSIZ;
         size += BUFSIZ;
-        rb_str_resize(str, size);
+        rb_str_resize( str, size);
     }
     return Qnil;
 }
@@ -1164,7 +1165,7 @@ static VALUE
 pgconn_endcopy( obj)
     VALUE obj;
 {
-    if (PQendcopy( get_pgconn(obj)) == 1) {
+    if (PQendcopy( get_pgconn( obj)) == 1) {
         rb_raise( rb_ePGError, "cannot complete copying");
     }
     return Qnil;
@@ -1177,7 +1178,7 @@ notice_proxy( self, message)
 {
     VALUE block;
     if ((block = rb_ivar_get( (VALUE) self, id_on_notice)) != Qnil) {
-        rb_funcall( block, rb_intern( "call"), 1, rb_str_new2(message));
+        rb_funcall( block, rb_intern( "call"), 1, rb_str_new2( message));
     }
 }
 
@@ -1213,12 +1214,12 @@ pgconn_on_notice( self)
  * Returns the connected server name.
  */
 static VALUE
-pgconn_host(obj)
+pgconn_host( obj)
     VALUE obj;
 {
-    char *host = PQhost(get_pgconn(obj));
+    char *host = PQhost( get_pgconn( obj));
     if (!host) return Qnil;
-    return rb_tainted_str_new2(host);
+    return rb_tainted_str_new2( host);
 }
 
 /*
@@ -1228,11 +1229,11 @@ pgconn_host(obj)
  * Returns the connected server port number.
  */
 static VALUE
-pgconn_port(obj)
+pgconn_port( obj)
     VALUE obj;
 {
-    char* port = PQport(get_pgconn(obj));
-    return INT2NUM(atol(port));
+    char* port = PQport( get_pgconn( obj));
+    return INT2NUM( atol( port));
 }
 
 /*
@@ -1242,12 +1243,12 @@ pgconn_port(obj)
  * Returns the connected database name.
  */
 static VALUE
-pgconn_db(obj)
+pgconn_db( obj)
     VALUE obj;
 {
-    char *db = PQdb(get_pgconn(obj));
+    char *db = PQdb( get_pgconn( obj));
     if (!db) return Qnil;
-    return rb_tainted_str_new2(db);
+    return rb_tainted_str_new2( db);
 }
 
 /*
@@ -1257,12 +1258,12 @@ pgconn_db(obj)
  * Returns backend option string.
  */
 static VALUE
-pgconn_options(obj)
+pgconn_options( obj)
     VALUE obj;
 {
-    char *options = PQoptions(get_pgconn(obj));
+    char *options = PQoptions( get_pgconn( obj));
     if (!options) return Qnil;
-    return rb_tainted_str_new2(options);
+    return rb_tainted_str_new2( options);
 }
 
 /*
@@ -1272,12 +1273,12 @@ pgconn_options(obj)
  * Returns the connected pgtty.
  */
 static VALUE
-pgconn_tty(obj)
+pgconn_tty( obj)
     VALUE obj;
 {
-    char *tty = PQtty(get_pgconn(obj));
+    char *tty = PQtty( get_pgconn( obj));
     if (!tty) return Qnil;
-    return rb_tainted_str_new2(tty);
+    return rb_tainted_str_new2( tty);
 }
 
 /*
@@ -1287,12 +1288,12 @@ pgconn_tty(obj)
  * Returns the authenticated user name.
  */
 static VALUE
-pgconn_user(obj)
+pgconn_user( obj)
     VALUE obj;
 {
-    char *user = PQuser(get_pgconn(obj));
+    char *user = PQuser( get_pgconn( obj));
     if (!user) return Qnil;
-    return rb_tainted_str_new2(user);
+    return rb_tainted_str_new2( user);
 }
 
 /*
@@ -1302,10 +1303,10 @@ pgconn_user(obj)
  * MISSING: documentation
  */
 static VALUE
-pgconn_status(obj)
+pgconn_status( obj)
     VALUE obj;
 {
-    return INT2NUM(PQstatus(get_pgconn(obj)));
+    return INT2NUM( PQstatus( get_pgconn( obj)));
 }
 
 /*
@@ -1315,7 +1316,7 @@ pgconn_status(obj)
  * Returns the error message about connection.
  */
 static VALUE
-pgconn_error(obj)
+pgconn_error( obj)
     VALUE obj;
 {
     char *error = PQerrorMessage( get_pgconn( obj));
@@ -1331,15 +1332,15 @@ pgconn_error(obj)
  * which is an instance of the class +File+.
  */
 static VALUE
-pgconn_trace(obj, port)
+pgconn_trace( obj, port)
     VALUE obj, port;
 {
     OpenFile* fp;
 
-    Check_Type(port, T_FILE);
-    GetOpenFile(port, fp);
+    Check_Type( port, T_FILE);
+    GetOpenFile( port, fp);
 
-    PQtrace(get_pgconn(obj), fp->f2?fp->f2:fp->f);
+    PQtrace( get_pgconn( obj), fp->f2?fp->f2:fp->f);
 
     return obj;
 }
@@ -1351,10 +1352,10 @@ pgconn_trace(obj, port)
  * Disables the message tracing.
  */
 static VALUE
-pgconn_untrace(obj)
+pgconn_untrace( obj)
     VALUE obj;
 {
-    PQuntrace(get_pgconn(obj));
+    PQuntrace( get_pgconn( obj));
     return obj;
 }
 
@@ -1374,10 +1375,10 @@ pgconn_untrace(obj)
  * for more information.
  */
 static VALUE
-pgconn_transaction_status(obj)
+pgconn_transaction_status( obj)
     VALUE obj;
 {
-    return INT2NUM(PQtransactionStatus(get_pgconn(obj)));
+    return INT2NUM( PQtransactionStatus( get_pgconn( obj)));
 }
 
 /*
@@ -1389,10 +1390,10 @@ pgconn_transaction_status(obj)
  * 1.0 is obsolete and not supported by libpq.)
  */
 static VALUE
-pgconn_protocol_version(obj)
+pgconn_protocol_version( obj)
     VALUE obj;
 {
-    return INT2NUM(PQprotocolVersion(get_pgconn(obj)));
+    return INT2NUM( PQprotocolVersion( get_pgconn( obj)));
 }
 
 /*
@@ -1406,10 +1407,10 @@ pgconn_protocol_version(obj)
  * is bad.
  */
 static VALUE
-pgconn_server_version(obj)
+pgconn_server_version( obj)
     VALUE obj;
 {
-    return INT2NUM(PQserverVersion(get_pgconn(obj)));
+    return INT2NUM( PQserverVersion( get_pgconn( obj)));
 }
 
 /*
@@ -1420,10 +1421,10 @@ pgconn_server_version(obj)
  * A shortcut for +Pg::Conn.quote+. See there for further explanation.
  */
 static VALUE
-pgconn_quote(obj,value)
+pgconn_quote( obj, value)
     VALUE obj, value;
 {
-    return pgconn_s_quote(rb_cPGConn, value);
+    return pgconn_s_quote( rb_cPGConn, value);
 }
 
 
@@ -1434,12 +1435,12 @@ pgconn_quote(obj,value)
  * Returns the client encoding as a String.
  */
 static VALUE
-pgconn_client_encoding(obj)
+pgconn_client_encoding( obj)
     VALUE obj;
 {
-    char *encoding = (char *)pg_encoding_to_char(
-                                PQclientEncoding(get_pgconn(obj)));
-    return rb_tainted_str_new2(encoding);
+    char *encoding = (char *) pg_encoding_to_char(
+                                PQclientEncoding( get_pgconn( obj)));
+    return rb_tainted_str_new2( encoding);
 }
 
 /*
@@ -1449,18 +1450,18 @@ pgconn_client_encoding(obj)
  * Sets the client encoding to the _encoding_ String.
  */
 static VALUE
-pgconn_set_client_encoding(obj, str)
+pgconn_set_client_encoding( obj, str)
     VALUE obj, str;
 {
-    Check_Type(str, T_STRING);
-    if ((PQsetClientEncoding(get_pgconn(obj), STR2CSTR(str))) == -1){
-        rb_raise(rb_ePGError, "invalid encoding name %s",str);
+    Check_Type( str, T_STRING);
+    if ((PQsetClientEncoding( get_pgconn( obj), STR2CSTR( str))) == -1) {
+        rb_raise( rb_ePGError, "invalid encoding name %s", str);
     }
     return Qnil;
 }
 
 static void
-free_pgresult(ptr)
+free_pgresult( ptr)
     PGresult *ptr;
 {
     PQclear( ptr);
@@ -1469,38 +1470,38 @@ free_pgresult(ptr)
 #define SCALE_MASK 0xffff
 
 static int
-has_numeric_scale(typmod)
+has_numeric_scale( typmod)
     int typmod;
 {
     if (typmod == -1) return 1;
     return (typmod - VARHDRSZ) & SCALE_MASK;
 }
 
-#define PARSE(klass, string) \
-    rb_funcall(klass, rb_intern("parse"), 1, rb_tainted_str_new2(string));
+#define PARSE( klass, string) \
+    rb_funcall( klass, rb_intern( "parse"), 1, rb_tainted_str_new2( string));
 
 static VALUE
-fetch_pgresult(result, row, column)
+fetch_pgresult( result, row, column)
     PGresult *result;
     int row;
     int column;
 {
     char* string;
 
-    if (PQgetisnull(result, row, column))
+    if (PQgetisnull( result, row, column))
         return Qnil;
 
-    string = PQgetvalue(result, row, column);
+    string = PQgetvalue( result, row, column);
 
     if (!translate_results)
-        return rb_tainted_str_new2(string);
+        return rb_tainted_str_new2( string);
 
-    switch (PQftype(result, column)) {
+    switch (PQftype( result, column)) {
     case BOOLOID:
         return *string == 't' ? Qtrue : Qfalse;
 
     case BYTEAOID:
-        return pgconn_s_unescape_bytea(rb_cPGConn, rb_tainted_str_new2(string));
+        return pgconn_s_unescape_bytea( rb_cPGConn, rb_tainted_str_new2( string));
 
     case NUMERICOID:
         if (has_numeric_scale( PQfmod( result, column))) {
@@ -1513,23 +1514,23 @@ fetch_pgresult(result, row, column)
     case INT4OID:
     case INT2OID:
     case OIDOID:
-        return rb_cstr2inum(string, 10);
+        return rb_cstr2inum( string, 10);
 
     case FLOAT8OID:
     case FLOAT4OID:
-        return rb_float_new(rb_cstr_to_dbl(string, Qfalse));
+        return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
 
     case DATEOID:
-        return PARSE(rb_cDate, string);
+        return PARSE( rb_cDate, string);
     case TIMEOID:
     case TIMETZOID:
-        return PARSE(rb_cTime, string);
+        return PARSE( rb_cTime, string);
     case TIMESTAMPOID:
     case TIMESTAMPTZOID:
-        return PARSE(rb_cDateTime, string);
+        return PARSE( rb_cDateTime, string);
 
     default:
-        return rb_tainted_str_new2(string);
+        return rb_tainted_str_new2( string);
     }
 }
 
@@ -1555,8 +1556,8 @@ pgresult_new( conn, result)
         rb_exc_raise( pgreserror_new( result));
         break;
     default:
-        PQclear(result);
-        rb_raise(rb_ePGError, "internal error: unknown result status.");
+        PQclear( result);
+        rb_raise( rb_ePGError, "internal error: unknown result status.");
         break;
     }
 
@@ -1578,15 +1579,15 @@ pgresult_new( conn, result)
  * * +COPY_IN+
  */
 static VALUE
-pgresult_status(obj)
+pgresult_status( obj)
     VALUE obj;
 {
-    return INT2NUM(PQresultStatus(get_pgresult(obj)));
+    return INT2NUM( PQresultStatus( get_pgresult( obj)));
 }
 
 
 static VALUE
-fetch_pgrow(result, row_num)
+fetch_pgrow( result, row_num)
     PGresult *result;
     int row_num;
 {
@@ -1605,13 +1606,13 @@ fetch_pgrow(result, row_num)
 
 /*
  * call-seq:
- *   conn.select_one(query, *bind_values)
+ *   conn.select_one( query, *bind_values)
  *
  * Return the first row of the query results.
- * Equivalent to conn.query(query, *bind_values).first
+ * Equivalent to conn.query( query, *bind_values).first
  */
 static VALUE
-pgconn_select_one(argc, argv, self)
+pgconn_select_one( argc, argv, self)
     int argc;
     VALUE *argv;
     VALUE self;
@@ -1621,7 +1622,7 @@ pgconn_select_one(argc, argv, self)
     PGresult *result;
 
 
-    res = rb_funcall2( self, rb_intern("exec"), argc, argv);
+    res = rb_funcall2( self, rb_intern( "exec"), argc, argv);
     result = get_pgresult( res);
     if (PQntuples( result))
       row = fetch_pgrow( result, 0);
@@ -1633,13 +1634,13 @@ pgconn_select_one(argc, argv, self)
 
 /*
  * call-seq:
- *   conn.select_value(query, *bind_values)
+ *   conn.select_value( query, *bind_values)
  *
  * Return the first value of the first row of the query results.
- * Equivalent to conn.query(query, *bind_values).first.first
+ * Equivalent to conn.query( query, *bind_values).first.first
  */
 static VALUE
-pgconn_select_value(argc, argv, self)
+pgconn_select_value( argc, argv, self)
     int argc;
     VALUE *argv;
     VALUE self;
@@ -1648,8 +1649,8 @@ pgconn_select_value(argc, argv, self)
     VALUE value;
     PGresult *result;
 
-    res = rb_funcall2( self, rb_intern("exec"), argc, argv);
-    result = get_pgresult(res);
+    res = rb_funcall2( self, rb_intern( "exec"), argc, argv);
+    result = get_pgresult( res);
     if (PQntuples( result))
       value = fetch_pgresult( result, 0, 0);
     else
@@ -1660,26 +1661,26 @@ pgconn_select_value(argc, argv, self)
 
 /*
  * call-seq:
- *   conn.select_values(query, *bind_values)
+ *   conn.select_values( query, *bind_values)
  *
- * Equivalent to conn.query(query, *bind_values).flatten
+ * Equivalent to conn.query( query, *bind_values).flatten
  */
 static VALUE
-pgconn_select_values(argc, argv, self)
+pgconn_select_values( argc, argv, self)
     int argc;
     VALUE *argv;
     VALUE self;
 {
-    VALUE pg_result = rb_funcall2( self, rb_intern("exec"), argc, argv);
+    VALUE pg_result = rb_funcall2( self, rb_intern( "exec"), argc, argv);
     PGresult *result = get_pgresult( pg_result);
     int ntuples = PQntuples( result);
     int nfields = PQnfields( result);
 
-    VALUE values = rb_ary_new2(ntuples * nfields);
+    VALUE values = rb_ary_new2( ntuples * nfields);
     int row_num, field_num;
     for (row_num = 0; row_num < ntuples; row_num++) {
       for (field_num = 0; field_num < nfields; field_num++) {
-        rb_ary_push(values, fetch_pgresult(result, row_num, field_num));
+        rb_ary_push( values, fetch_pgresult( result, row_num, field_num));
       }
     }
 
@@ -1697,17 +1698,17 @@ pgconn_select_values(argc, argv, self)
  * wasn't any (like <code>Numeric#nonzero?</code>).
  */
 static VALUE
-pgresult_each(self)
+pgresult_each( self)
     VALUE self;
 {
-    PGresult *result = get_pgresult(self);
-    int row_count = PQntuples(result);
+    PGresult *result = get_pgresult( self);
+    int row_count = PQntuples( result);
     int row_num, r;
 
     for (row_num = 0, r = row_count; r ; row_num++, r--)
-        rb_yield(fetch_pgrow(result, row_num));
+        rb_yield( fetch_pgrow( result, row_num));
 
-    return row_count ? INT2NUM(row_count) : Qnil;
+    return row_count ? INT2NUM( row_count) : Qnil;
 }
 
 /*
@@ -1720,7 +1721,7 @@ pgresult_each(self)
  * Equivalent to <tt>res.result[n]</tt>.
  */
 static VALUE
-pgresult_aref(argc, argv, obj)
+pgresult_aref( argc, argv, obj)
     int argc;
     VALUE *argv;
     VALUE obj;
@@ -1729,27 +1730,27 @@ pgresult_aref(argc, argv, obj)
     VALUE a1, a2, val;
     int i, j, nf, nt;
 
-    result = get_pgresult(obj);
-    nt = PQntuples(result);
-    nf = PQnfields(result);
-    switch (rb_scan_args(argc, argv, "11", &a1, &a2)) {
+    result = get_pgresult( obj);
+    nt = PQntuples( result);
+    nf = PQnfields( result);
+    switch (rb_scan_args( argc, argv, "11", &a1, &a2)) {
     case 1:
-        i = NUM2INT(a1);
+        i = NUM2INT( a1);
         if( i >= nt ) return Qnil;
 
         val = rb_ary_new();
         for (j=0; j<nf; j++) {
-            VALUE value = fetch_pgresult(result, i, j);
-            rb_ary_push(val, value);
+            VALUE value = fetch_pgresult( result, i, j);
+            rb_ary_push( val, value);
         }
         return val;
 
     case 2:
-        i = NUM2INT(a1);
+        i = NUM2INT( a1);
         if( i >= nt ) return Qnil;
-        j = NUM2INT(a2);
+        j = NUM2INT( a2);
         if( j >= nf ) return Qnil;
-        return fetch_pgresult(result, i, j);
+        return fetch_pgresult( result, i, j);
 
     default:
         return Qnil;            /* not reached */
@@ -1757,16 +1758,16 @@ pgresult_aref(argc, argv, obj)
 }
 
 static VALUE
-fetch_fields(result)
+fetch_fields( result)
     PGresult *result;
 {
     VALUE ary;
     int n, i;
 
-    n = PQnfields(result);
-    ary = rb_ary_new2(n);
+    n = PQnfields( result);
+    ary = rb_ary_new2( n);
     for (i=0;i<n;i++) {
-        rb_ary_push(ary, rb_tainted_str_new2(PQfname(result, i)));
+        rb_ary_push( ary, rb_tainted_str_new2( PQfname( result, i)));
     }
     return ary;
 }
@@ -1778,14 +1779,14 @@ fetch_fields(result)
  * Returns an array of Strings representing the names of the fields in the
  * result.
  *
- *   res=conn.exec("SELECT foo,bar AS biggles,jim,jam FROM mytable")
+ *   res=conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
  *   res.fields => [ 'foo' , 'biggles' , 'jim' , 'jam' ]
  */
 static VALUE
-pgresult_fields(obj)
+pgresult_fields( obj)
     VALUE obj;
 {
-    return fetch_fields( get_pgresult(obj));
+    return fetch_fields( get_pgresult( obj));
 }
 
 /*
@@ -1797,13 +1798,13 @@ pgresult_fields(obj)
  * Similar to <tt>res.result.length</tt> (but faster).
  */
 static VALUE
-pgresult_num_tuples(obj)
+pgresult_num_tuples( obj)
     VALUE obj;
 {
     int n;
 
-    n = PQntuples(get_pgresult(obj));
-    return INT2NUM(n);
+    n = PQntuples( get_pgresult( obj));
+    return INT2NUM( n);
 }
 
 /*
@@ -1815,13 +1816,13 @@ pgresult_num_tuples(obj)
  * Similar to <tt>res.result[0].length</tt> (but faster).
  */
 static VALUE
-pgresult_num_fields(obj)
+pgresult_num_fields( obj)
     VALUE obj;
 {
     int n;
 
-    n = PQnfields(get_pgresult(obj));
-    return INT2NUM(n);
+    n = PQnfields( get_pgresult( obj));
+    return INT2NUM( n);
 }
 
 /*
@@ -1830,26 +1831,26 @@ pgresult_num_fields(obj)
  *
  * Returns the name of the field (column) corresponding to the index.
  *
- *   res=conn.exec("SELECT foo,bar AS biggles,jim,jam FROM mytable")
- *   puts res.fieldname(2) => 'jim'
- *   puts res.fieldname(1) => 'biggles'
+ *   res=conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
+ *   puts res.fieldname( 2) => 'jim'
+ *   puts res.fieldname( 1) => 'biggles'
  *
  * Equivalent to <tt>res.fields[_index_]</tt>.
  */
 static VALUE
-pgresult_fieldname(obj, index)
+pgresult_fieldname( obj, index)
     VALUE obj, index;
 {
     PGresult *result;
-    int i = NUM2INT(index);
+    int i = NUM2INT( index);
     char *name;
 
-    result = get_pgresult(obj);
-    if (i < 0 || i >= PQnfields(result)) {
-        rb_raise(rb_eArgError,"invalid field number %d", i);
+    result = get_pgresult( obj);
+    if (i < 0 || i >= PQnfields( result)) {
+        rb_raise( rb_eArgError, "invalid field number %d", i);
     }
-    name = PQfname(result, i);
-    return rb_tainted_str_new2(name);
+    name = PQfname( result, i);
+    return rb_tainted_str_new2( name);
 }
 
 /*
@@ -1858,25 +1859,25 @@ pgresult_fieldname(obj, index)
  *
  * Returns the index of the field specified by the string _name_.
  *
- *   res=conn.exec("SELECT foo,bar AS biggles,jim,jam FROM mytable")
+ *   res=conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
  *   puts res.fieldnum('foo') => 0
  *
  * Raises an ArgumentError if the specified _name_ isn't one of the field
  * names; raises a TypeError if _name_ is not a String.
  */
 static VALUE
-pgresult_fieldnum(obj, name)
+pgresult_fieldnum( obj, name)
     VALUE obj, name;
 {
     int n;
 
-    Check_Type(name, T_STRING);
+    Check_Type( name, T_STRING);
 
-    n = PQfnumber(get_pgresult(obj), STR2CSTR(name));
+    n = PQfnumber( get_pgresult( obj), STR2CSTR( name));
     if (n == -1) {
-        rb_raise(rb_eArgError,"Unknown field: %s", STR2CSTR(name));
+        rb_raise( rb_eArgError, "Unknown field: %s", STR2CSTR( name));
     }
-    return INT2NUM(n);
+    return INT2NUM( n);
 }
 
 /*
@@ -1890,15 +1891,15 @@ pgresult_fieldnum(obj, name)
  * every column type in the file <tt>src/include/catalog/pg_type.h</tt>.
  */
 static VALUE
-pgresult_type(obj, index)
+pgresult_type( obj, index)
     VALUE obj, index;
 {
-    PGresult* result = get_pgresult(obj);
-    int i = NUM2INT(index);
-    if (i < 0 || i >= PQnfields(result)) {
-        rb_raise(rb_eArgError, "invalid field number %d", i);
+    PGresult* result = get_pgresult( obj);
+    int i = NUM2INT( index);
+    if (i < 0 || i >= PQnfields( result)) {
+        rb_raise( rb_eArgError, "invalid field number %d", i);
     }
-    return INT2NUM(PQftype(result, i));
+    return INT2NUM( PQftype( result, i));
 }
 
 /*
@@ -1908,24 +1909,24 @@ pgresult_type(obj, index)
  * Returns the size of the field type in bytes.  Returns <tt>-1</tt> if the
  * field is variable sized.
  *
- *   res = conn.exec("SELECT myInt, myVarChar50 FROM foo")
- *   res.size(0) => 4
- *   res.size(1) => -1
+ *   res = conn.exec( "SELECT myInt, myVarChar50 FROM foo")
+ *   res.size( 0) => 4
+ *   res.size( 1) => -1
  */
 static VALUE
-pgresult_size(obj, index)
+pgresult_size( obj, index)
     VALUE obj, index;
 {
     PGresult *result;
-    int i = NUM2INT(index);
+    int i = NUM2INT( index);
     int size;
 
-    result = get_pgresult(obj);
-    if (i < 0 || i >= PQnfields(result)) {
-        rb_raise(rb_eArgError,"invalid field number %d", i);
+    result = get_pgresult( obj);
+    if (i < 0 || i >= PQnfields( result)) {
+        rb_raise( rb_eArgError, "invalid field number %d", i);
     }
-    size = PQfsize(result, i);
-    return INT2NUM(size);
+    size = PQfsize( result, i);
+    return INT2NUM( size);
 }
 
 /*
@@ -1939,22 +1940,22 @@ pgresult_size(obj, index)
  * faster).
  */
 static VALUE
-pgresult_getvalue(obj, tup_num, field_num)
+pgresult_getvalue( obj, tup_num, field_num)
     VALUE obj, tup_num, field_num;
 {
     PGresult *result;
-    int i = NUM2INT(tup_num);
-    int j = NUM2INT(field_num);
+    int i = NUM2INT( tup_num);
+    int j = NUM2INT( field_num);
 
-    result = get_pgresult(obj);
-    if (i < 0 || i >= PQntuples(result)) {
-        rb_raise(rb_eArgError,"invalid tuple number %d", i);
+    result = get_pgresult( obj);
+    if (i < 0 || i >= PQntuples( result)) {
+        rb_raise( rb_eArgError, "invalid tuple number %d", i);
     }
-    if (j < 0 || j >= PQnfields(result)) {
-        rb_raise(rb_eArgError,"invalid field number %d", j);
+    if (j < 0 || j >= PQnfields( result)) {
+        rb_raise( rb_eArgError, "invalid field number %d", j);
     }
 
-    return fetch_pgresult(result, i, j);
+    return fetch_pgresult( result, i, j);
 }
 
 
@@ -1973,11 +1974,11 @@ pgresult_getvalue(obj, tup_num, field_num)
  * it is slower than using the field index directly.)</i>
  */
 static VALUE
-pgresult_getvalue_byname(obj, tup_num, field_name)
+pgresult_getvalue_byname( obj, tup_num, field_name)
     VALUE obj, tup_num, field_name;
 {
-    return pgresult_getvalue(obj, tup_num,
-                pgresult_fieldnum(obj, field_name));
+    return pgresult_getvalue( obj, tup_num,
+                pgresult_fieldnum( obj, field_name));
 }
 
 
@@ -1990,47 +1991,47 @@ pgresult_getvalue_byname(obj, tup_num, field_name)
  * Equivalent to <tt>res.value(<i>tup_num</i>,<i>field_num</i>).length</tt>.
  */
 static VALUE
-pgresult_getlength(obj, tup_num, field_num)
+pgresult_getlength( obj, tup_num, field_num)
     VALUE obj, tup_num, field_num;
 {
     PGresult *result;
-    int i = NUM2INT(tup_num);
-    int j = NUM2INT(field_num);
+    int i = NUM2INT( tup_num);
+    int j = NUM2INT( field_num);
 
-    result = get_pgresult(obj);
-    if (i < 0 || i >= PQntuples(result)) {
-        rb_raise(rb_eArgError,"invalid tuple number %d", i);
+    result = get_pgresult( obj);
+    if (i < 0 || i >= PQntuples( result)) {
+        rb_raise( rb_eArgError, "invalid tuple number %d", i);
     }
-    if (j < 0 || j >= PQnfields(result)) {
-        rb_raise(rb_eArgError,"invalid field number %d", j);
+    if (j < 0 || j >= PQnfields( result)) {
+        rb_raise( rb_eArgError, "invalid field number %d", j);
     }
-    return INT2FIX(PQgetlength(result, i, j));
+    return INT2FIX( PQgetlength( result, i, j));
 }
 
 /*
  * call-seq:
- *    res.getisnull(tuple_position, field_position) -> boolean
+ *    res.getisnull( tuple_position, field_position) -> boolean
  *
  * Returns +true+ if the specified value is +nil+; +false+ otherwise.
  *
  * Equivalent to <tt>res.value(<i>tup_num</i>,<i>field_num</i>)==+nil+</tt>.
  */
 static VALUE
-pgresult_getisnull(obj, tup_num, field_num)
+pgresult_getisnull( obj, tup_num, field_num)
     VALUE obj, tup_num, field_num;
 {
     PGresult *result;
-    int i = NUM2INT(tup_num);
-    int j = NUM2INT(field_num);
+    int i = NUM2INT( tup_num);
+    int j = NUM2INT( field_num);
 
-    result = get_pgresult(obj);
+    result = get_pgresult( obj);
     if (i < 0 || i >= PQntuples( result)) {
-        rb_raise(rb_eArgError,"invalid tuple number %d", i);
+        rb_raise( rb_eArgError, "invalid tuple number %d", i);
     }
     if (j < 0 || j >= PQnfields( result)) {
-        rb_raise(rb_eArgError,"invalid field number %d", j);
+        rb_raise( rb_eArgError, "invalid field number %d", j);
     }
-    return PQgetisnull(result, i, j) ? Qtrue : Qfalse;
+    return PQgetisnull( result, i, j) ? Qtrue : Qfalse;
 }
 
 /*
@@ -2040,7 +2041,7 @@ pgresult_getisnull(obj, tup_num, field_num)
  * MISSING: Documentation
  */
 static VALUE
-pgresult_print(obj, file, opt)
+pgresult_print( obj, file, opt)
     VALUE obj, file, opt;
 {
     VALUE value;
@@ -2048,58 +2049,58 @@ pgresult_print(obj, file, opt)
     OpenFile* fp;
     PQprintOpt po;
 
-    Check_Type(file, T_FILE);
-    Check_Type(opt,  T_STRUCT);
-    GetOpenFile(file, fp);
+    Check_Type( file, T_FILE);
+    Check_Type( opt,  T_STRUCT);
+    GetOpenFile( file, fp);
 
-    memset(&po, 0, sizeof(po));
+    memset(&po, 0, sizeof (po));
 
-    mem = rb_intern("header");
-    value = rb_struct_getmember(opt, mem);
+    mem = rb_intern( "header");
+    value = rb_struct_getmember( opt, mem);
     po.header = value == Qtrue ? 1 : 0;
 
-    mem = rb_intern("align");
-    value = rb_struct_getmember(opt, mem);
+    mem = rb_intern( "align");
+    value = rb_struct_getmember( opt, mem);
     po.align = value == Qtrue ? 1 : 0;
 
-    mem = rb_intern("standard");
-    value = rb_struct_getmember(opt, mem);
+    mem = rb_intern( "standard");
+    value = rb_struct_getmember( opt, mem);
     po.standard = value == Qtrue ? 1 : 0;
 
-    mem = rb_intern("html3");
-    value = rb_struct_getmember(opt, mem);
+    mem = rb_intern( "html3");
+    value = rb_struct_getmember( opt, mem);
     po.html3 = value == Qtrue ? 1 : 0;
 
-    mem = rb_intern("expanded");
-    value = rb_struct_getmember(opt, mem);
+    mem = rb_intern( "expanded");
+    value = rb_struct_getmember( opt, mem);
     po.expanded = value == Qtrue ? 1 : 0;
 
-    mem = rb_intern("pager");
-    value = rb_struct_getmember(opt, mem);
+    mem = rb_intern( "pager");
+    value = rb_struct_getmember( opt, mem);
     po.pager = value == Qtrue ? 1 : 0;
 
-    mem = rb_intern("fieldSep");
-    value = rb_struct_getmember(opt, mem);
-    if (!NIL_P(value)) {
-        Check_Type(value, T_STRING);
-        po.fieldSep = STR2CSTR(value);
+    mem = rb_intern( "fieldSep");
+    value = rb_struct_getmember( opt, mem);
+    if (!NIL_P( value)) {
+        Check_Type( value, T_STRING);
+        po.fieldSep = STR2CSTR( value);
     }
 
-    mem = rb_intern("tableOpt");
-    value = rb_struct_getmember(opt, mem);
-    if (!NIL_P(value)) {
-        Check_Type(value, T_STRING);
-        po.tableOpt = STR2CSTR(value);
+    mem = rb_intern( "tableOpt");
+    value = rb_struct_getmember( opt, mem);
+    if (!NIL_P( value)) {
+        Check_Type( value, T_STRING);
+        po.tableOpt = STR2CSTR( value);
     }
 
-    mem = rb_intern("caption");
-    value = rb_struct_getmember(opt, mem);
-    if (!NIL_P(value)) {
-        Check_Type(value, T_STRING);
-        po.caption = STR2CSTR(value);
+    mem = rb_intern( "caption");
+    value = rb_struct_getmember( opt, mem);
+    if (!NIL_P( value)) {
+        Check_Type( value, T_STRING);
+        po.caption = STR2CSTR( value);
     }
 
-    PQprint(fp->f2?fp->f2:fp->f, get_pgresult(obj), &po);
+    PQprint( fp->f2?fp->f2:fp->f, get_pgresult( obj), &po);
     return obj;
 }
 
@@ -2114,13 +2115,13 @@ pgresult_print(obj, file, opt)
  * affected, <tt>0</tt> is returned.
  */
 static VALUE
-pgresult_cmdtuples(obj)
+pgresult_cmdtuples( obj)
     VALUE obj;
 {
     long n;
 
     n = strtol( PQcmdTuples( get_pgresult( obj)), NULL, 10);
-    return INT2NUM(n);
+    return INT2NUM( n);
 }
 /*
  * call-seq:
@@ -2129,7 +2130,7 @@ pgresult_cmdtuples(obj)
  * Returns the status string of the last query command.
  */
 static VALUE
-pgresult_cmdstatus(obj)
+pgresult_cmdstatus( obj)
     VALUE obj;
 {
     return rb_tainted_str_new2( PQcmdStatus( get_pgresult( obj)));
@@ -2142,7 +2143,7 @@ pgresult_cmdstatus(obj)
  * Returns the +oid+.
  */
 static VALUE
-pgresult_oid(obj)
+pgresult_oid( obj)
     VALUE obj;
 {
     Oid n = PQoidValue( get_pgresult( obj));
@@ -2159,22 +2160,22 @@ static VALUE
 pgresult_clear( obj)
     VALUE obj;
 {
-    if (DATA_PTR(obj) != NULL) {
-      PQclear(get_pgresult(obj));
-      DATA_PTR(obj) = NULL;
+    if (DATA_PTR( obj) != NULL) {
+      PQclear( get_pgresult( obj));
+      DATA_PTR( obj) = NULL;
     }
     return Qnil;
 }
 
 static VALUE
-pgresult_result_with_clear(self)
+pgresult_result_with_clear( self)
     VALUE self;
 {
     if (rb_block_given_p()) {
         return rb_ensure( pgresult_each, self, pgresult_clear, self);
     }
     else {
-        VALUE rows = rb_funcall( self, rb_intern("rows"), 0);
+        VALUE rows = rb_funcall( self, rb_intern( "rows"), 0);
         pgresult_clear( self);
         return rows;
     }
@@ -2196,24 +2197,24 @@ get_pglarge( obj)
 
 /*
  * call-seq:
- *    conn.lo_import(file) -> Pg::Large
+ *    conn.lo_import( file) -> Pg::Large
  *
  * Import a file to a large object. Returns a Pg::Large instance on success. On
  * failure, it raises a PGError exception.
  */
 static VALUE
-pgconn_loimport(obj, filename)
+pgconn_loimport( obj, filename)
     VALUE obj, filename;
 {
     Oid lo_oid;
     PGconn *conn;
 
-    Check_Type(filename, T_STRING);
+    Check_Type( filename, T_STRING);
 
     conn = get_pgconn( obj);
     lo_oid = lo_import( conn, STR2CSTR( filename));
     if (lo_oid == 0)
-        pg_raise( conn);
+        pg_raise_exec( conn);
     return pglarge_new( conn, lo_oid, -1);
 }
 
@@ -2238,7 +2239,7 @@ pgconn_loexport( obj, lo_oid, filename)
 
     conn = get_pgconn( obj);
     if (!lo_export( conn, oid, STR2CSTR( filename)))
-        pg_raise( conn);
+        pg_raise_exec( conn);
     return Qnil;
 }
 
@@ -2255,8 +2256,8 @@ pglarge_close( obj)
     PGlarge *pglarge;
     int ret;
 
-    pglarge = get_pglarge(obj);
-    ret = lo_close(pglarge->pgconn, pglarge->lo_fd);
+    pglarge = get_pglarge( obj);
+    ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
     if (ret < 0)
         rb_raise( rb_ePGError, "cannot close large object");
     DATA_PTR( obj) = 0;
@@ -2276,7 +2277,7 @@ pglarge_close( obj)
  *
  */
 static VALUE
-pgconn_locreate(argc, argv, obj)
+pgconn_locreate( argc, argv, obj)
     int argc;
     VALUE *argv;
     VALUE obj;
@@ -2288,7 +2289,7 @@ pgconn_locreate(argc, argv, obj)
     int fd;
     VALUE lob;
 
-    if (rb_scan_args(argc, argv, "01", &nmode) == 0)
+    if (rb_scan_args( argc, argv, "01", &nmode) == 0)
         mode = INV_WRITE;
     else
         mode = FIX2INT( nmode);
@@ -2323,7 +2324,7 @@ pgconn_locreate(argc, argv, obj)
  *
  */
 static VALUE
-pgconn_loopen(argc, argv, obj)
+pgconn_loopen( argc, argv, obj)
     int argc;
     VALUE *argv;
     VALUE obj;
@@ -2366,7 +2367,7 @@ pgconn_loopen(argc, argv, obj)
  * Unlinks (deletes) the postgres large object of _oid_.
  */
 static VALUE
-pgconn_lounlink(obj, lo_oid)
+pgconn_lounlink( obj, lo_oid)
     VALUE obj, lo_oid;
 {
     PGconn *conn;
@@ -2375,7 +2376,7 @@ pgconn_lounlink(obj, lo_oid)
 
     oid = NUM2INT( lo_oid);
     if (oid < 0)
-        rb_raise(rb_ePGError, "invalid oid %d", oid);
+        rb_raise( rb_ePGError, "invalid oid %d", oid);
     conn = get_pgconn( obj);
     result = lo_unlink( conn, oid);
     if (result < 0)
@@ -2384,16 +2385,16 @@ pgconn_lounlink(obj, lo_oid)
 }
 
 static void
-free_pglarge(ptr)
+free_pglarge( ptr)
     PGlarge *ptr;
 {
     if (ptr->lo_fd > 0)
         lo_close( ptr->pgconn, ptr->lo_fd);
-    free(ptr);
+    free( ptr);
 }
 
 static VALUE
-pglarge_new( conn, lo_oid ,lo_fd)
+pglarge_new( conn, lo_oid, lo_fd)
     PGconn *conn;
     Oid lo_oid;
     int lo_fd;
@@ -2432,7 +2433,7 @@ large_tell( pglarge)
 {
     int pos;
 
-    pos = lo_tell(pglarge->pgconn,pglarge->lo_fd);
+    pos = lo_tell( pglarge->pgconn, pglarge->lo_fd);
     if (pos == -1)
         rb_raise( rb_ePGError, "error while getting position");
     return pos;
@@ -2473,7 +2474,7 @@ loread_all( obj)
     long bytes = 0;
     int n;
 
-    pglarge = get_pglarge(obj);
+    pglarge = get_pglarge( obj);
     str = rb_tainted_str_new( 0, 0);
     for (;;) {
         rb_str_resize( str, bytes + BUFSIZ);
@@ -2501,17 +2502,17 @@ pglarge_read( argc, argv, obj)
     VALUE obj;
 {
     int len;
-    PGlarge *pglarge = get_pglarge(obj);
+    PGlarge *pglarge = get_pglarge( obj);
     VALUE str;
 
     VALUE length;
-    rb_scan_args(argc, argv, "01", &length);
+    rb_scan_args( argc, argv, "01", &length);
     if (NIL_P( length))
         return loread_all( obj);
 
     len = NUM2INT( length);
     if (len < 0)
-        rb_raise( rb_ePGError,"nagative length %d given", len);
+        rb_raise( rb_ePGError, "nagative length %d given", len);
 
     str = rb_tainted_str_new( 0, len);
     len = lo_read( pglarge->pgconn, pglarge->lo_fd, STR2CSTR( str), len);
@@ -2520,7 +2521,7 @@ pglarge_read( argc, argv, obj)
     if (len == 0)
         return Qnil;
     else {
-        RSTRING(str)->len = len;
+        RSTRING( str)->len = len;
         return str;
     }
 }
@@ -2565,8 +2566,8 @@ static VALUE
 pglarge_seek( obj, offset, whence)
     VALUE obj, offset, whence;
 {
-    PGlarge *pglarge = get_pglarge(obj);
-    return INT2NUM( large_lseek( pglarge, NUM2INT(offset), NUM2INT(whence)));
+    PGlarge *pglarge = get_pglarge( obj);
+    return INT2NUM( large_lseek( pglarge, NUM2INT( offset), NUM2INT( whence)));
 }
 
 /*
@@ -2576,10 +2577,10 @@ pglarge_seek( obj, offset, whence)
  * Returns the size of the large object.
  */
 static VALUE
-pglarge_size(obj)
+pglarge_size( obj)
     VALUE obj;
 {
-    PGlarge *pglarge = get_pglarge(obj);
+    PGlarge *pglarge = get_pglarge( obj);
     int start, end;
 
     start = large_tell( pglarge);
@@ -2595,15 +2596,15 @@ pglarge_size(obj)
  * Saves the large object to a file.
  */
 static VALUE
-pglarge_export(obj, filename)
+pglarge_export( obj, filename)
     VALUE obj, filename;
 {
     PGlarge *pglarge = get_pglarge( obj);
 
-    Check_Type(filename, T_STRING);
+    Check_Type( filename, T_STRING);
 
-    if (!lo_export( pglarge->pgconn, pglarge->lo_oid, STR2CSTR(filename))) {
-        pg_raise( pglarge->pgconn);
+    if (!lo_export( pglarge->pgconn, pglarge->lo_oid, STR2CSTR( filename))) {
+        pg_raise_exec( pglarge->pgconn);
     }
     return Qnil;
 }
@@ -2615,26 +2616,26 @@ pglarge_export(obj, filename)
  * Deletes the large object.
  */
 static VALUE
-pglarge_unlink(obj)
+pglarge_unlink( obj)
     VALUE obj;
 {
-    PGlarge *pglarge = get_pglarge(obj);
+    PGlarge *pglarge = get_pglarge( obj);
 
-    if (!lo_unlink(pglarge->pgconn,pglarge->lo_oid)) {
-        pg_raise( pglarge->pgconn);
+    if (!lo_unlink( pglarge->pgconn, pglarge->lo_oid)) {
+        pg_raise_exec( pglarge->pgconn);
     }
-    DATA_PTR(obj) = 0;
+    DATA_PTR( obj) = 0;
 
     return Qnil;
 }
 
 static VALUE
-pgrow_init(self, keys)
+pgrow_init( self, keys)
     VALUE self, keys;
 {
-    VALUE args[1] = { LONG2NUM(RARRAY(keys)->len) };
-    rb_call_super(1, args);
-    rb_ivar_set(self, id_keys, keys);
+    VALUE args[1] = { LONG2NUM( RARRAY( keys)->len) };
+    rb_call_super( 1, args);
+    rb_ivar_set( self, id_keys, keys);
     return self;
 }
 
@@ -2645,10 +2646,10 @@ pgrow_init(self, keys)
  * Column names.
  */
 static VALUE
-pgrow_keys(self)
+pgrow_keys( self)
     VALUE self;
 {
-    return rb_ivar_get(self, id_keys);
+    return rb_ivar_get( self, id_keys);
 }
 
 /*
@@ -2656,7 +2657,7 @@ pgrow_keys(self)
  *   row.values -> row
  */
 static VALUE
-pgrow_values(self)
+pgrow_values( self)
     VALUE self;
 {
     return self;
@@ -2670,24 +2671,24 @@ pgrow_values(self)
  * Access elements of this row by column position or name.
  */
 static VALUE
-pgrow_aref(argc, argv, self)
+pgrow_aref( argc, argv, self)
     int argc;
     VALUE * argv;
     VALUE self;
 {
-    if (TYPE(argv[0]) == T_STRING) {
-        VALUE keys = pgrow_keys(self);
-        VALUE index = rb_funcall(keys, rb_intern("index"), 1, argv[0]);
+    if (TYPE( argv[0]) == T_STRING) {
+        VALUE keys = pgrow_keys( self);
+        VALUE index = rb_funcall( keys, rb_intern( "index"), 1, argv[0]);
         if (index == Qnil) {
-            rb_raise(rb_ePGError, "%s: field not found",
-                            STR2CSTR(argv[0]));
+            rb_raise( rb_ePGError, "%s: field not found",
+                            STR2CSTR( argv[0]));
         }
         else {
-            return rb_ary_entry(self, NUM2INT(index));
+            return rb_ary_entry( self, NUM2INT( index));
         }
     }
     else {
-        return rb_call_super(argc, argv);
+        return rb_call_super( argc, argv);
     }
 }
 
@@ -2698,10 +2699,10 @@ pgrow_aref(argc, argv, self)
  * Iterate with values.
  */
 static VALUE
-pgrow_each_value(self)
+pgrow_each_value( self)
     VALUE self;
 {
-    rb_ary_each(self);
+    rb_ary_each( self);
     return self;
 }
 
@@ -2709,16 +2710,17 @@ pgrow_each_value(self)
  * call-seq:
  *   row.each_pair { |column_value_array| block } -> row
  *
- * Iterate with column,value pairs.
+ * Iterate with column, value pairs.
  */
 static VALUE
-pgrow_each_pair(self)
+pgrow_each_pair( self)
     VALUE self;
 {
-    VALUE keys = pgrow_keys(self);
+    VALUE keys = pgrow_keys( self);
     int i;
-    for (i = 0; i < RARRAY(keys)->len; ++i) {
-        rb_yield(rb_assoc_new(rb_ary_entry(keys, i), rb_ary_entry(self, i)));
+    for (i = 0; i < RARRAY( keys)->len; ++i) {
+        rb_yield( rb_assoc_new( rb_ary_entry( keys, i),
+                                                rb_ary_entry( self, i)));
     }
     return self;
 }
@@ -2728,18 +2730,18 @@ pgrow_each_pair(self)
  *   row.each { |column, value| block } -> row
  *   row.each { |value| block } -> row
  *
- * Iterate with values or column,value pairs.
+ * Iterate with values or column, value pairs.
  */
 static VALUE
-pgrow_each(self)
+pgrow_each( self)
     VALUE self;
 {
-    int arity = NUM2INT(rb_funcall(rb_block_proc(), rb_intern("arity"), 0));
+    int arity = NUM2INT( rb_funcall( rb_block_proc(), rb_intern( "arity"), 0));
     if (arity == 2) {
-        pgrow_each_pair(self);
+        pgrow_each_pair( self);
     }
     else {
-        pgrow_each_value(self);
+        pgrow_each_value( self);
     }
     return self;
 }
@@ -2751,10 +2753,10 @@ pgrow_each(self)
  * Iterate with column names.
  */
 static VALUE
-pgrow_each_key(self)
+pgrow_each_key( self)
     VALUE self;
 {
-    rb_ary_each(pgrow_keys(self));
+    rb_ary_each( pgrow_keys( self));
     return self;
 }
 
@@ -2763,17 +2765,17 @@ pgrow_each_key(self)
  *   row.to_hash -> Hash
  *
  * Returns a +Hash+ of the row's values indexed by column name.
- * Equivalent to <tt>Hash [*row.keys.zip(row).flatten]</tt>
+ * Equivalent to <tt>Hash [*row.keys.zip( row).flatten]</tt>
  */
 static VALUE
-pgrow_to_hash(self)
+pgrow_to_hash( self)
     VALUE self;
 {
     VALUE result = rb_hash_new();
-    VALUE keys = pgrow_keys(self);
+    VALUE keys = pgrow_keys( self);
     int i;
-    for (i = 0; i < RARRAY(self)->len; ++i) {
-        rb_hash_aset(result, rb_ary_entry(keys, i), rb_ary_entry(self, i));
+    for (i = 0; i < RARRAY( self)->len; ++i) {
+        rb_hash_aset( result, rb_ary_entry( keys, i), rb_ary_entry( self, i));
     }
     return result;
 }
@@ -2839,6 +2841,8 @@ Init_pgsql( void)
 
     rb_ePGError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
 
+    rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
+
     rb_ePGResError = rb_define_class_under( rb_mPg, "ResultError", rb_ePGError);
     rb_define_method( rb_ePGResError, "status", pgreserror_status, 0);
     rb_define_method( rb_ePGResError, "sqlstate", pgreserror_sqlst, 0);
@@ -2866,8 +2870,8 @@ Init_pgsql( void)
     rb_define_singleton_method( rb_cPGConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
 
-    rb_define_const( rb_cPGConn, "CONNECTION_OK", INT2FIX(CONNECTION_OK));
-    rb_define_const( rb_cPGConn, "CONNECTION_BAD", INT2FIX(CONNECTION_BAD));
+    rb_define_const( rb_cPGConn, "CONNECTION_OK", INT2FIX( CONNECTION_OK));
+    rb_define_const( rb_cPGConn, "CONNECTION_BAD", INT2FIX( CONNECTION_BAD));
 
     rb_define_method( rb_cPGConn, "initialize", pgconn_init, -1);
     rb_define_method( rb_cPGConn, "db", pgconn_db, 0);
@@ -2942,15 +2946,15 @@ Init_pgsql( void)
     rb_cPGResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
     rb_include_module( rb_cPGResult, rb_mEnumerable);
 
-    rb_define_const( rb_cPGResult, "EMPTY_QUERY", INT2FIX(PGRES_EMPTY_QUERY));
-    rb_define_const( rb_cPGResult, "COMMAND_OK", INT2FIX(PGRES_COMMAND_OK));
-    rb_define_const( rb_cPGResult, "TUPLES_OK", INT2FIX(PGRES_TUPLES_OK));
-    rb_define_const( rb_cPGResult, "COPY_OUT", INT2FIX(PGRES_COPY_OUT));
-    rb_define_const( rb_cPGResult, "COPY_IN", INT2FIX(PGRES_COPY_IN));
-    rb_define_const( rb_cPGResult, "BAD_RESPONSE", INT2FIX(PGRES_BAD_RESPONSE));
+    rb_define_const( rb_cPGResult, "EMPTY_QUERY", INT2FIX( PGRES_EMPTY_QUERY));
+    rb_define_const( rb_cPGResult, "COMMAND_OK", INT2FIX( PGRES_COMMAND_OK));
+    rb_define_const( rb_cPGResult, "TUPLES_OK", INT2FIX( PGRES_TUPLES_OK));
+    rb_define_const( rb_cPGResult, "COPY_OUT", INT2FIX( PGRES_COPY_OUT));
+    rb_define_const( rb_cPGResult, "COPY_IN", INT2FIX( PGRES_COPY_IN));
+    rb_define_const( rb_cPGResult, "BAD_RESPONSE", INT2FIX( PGRES_BAD_RESPONSE));
     rb_define_const( rb_cPGResult, "NONFATAL_ERROR",
-                                                INT2FIX(PGRES_NONFATAL_ERROR));
-    rb_define_const( rb_cPGResult, "FATAL_ERROR", INT2FIX(PGRES_FATAL_ERROR));
+                                                INT2FIX( PGRES_NONFATAL_ERROR));
+    rb_define_const( rb_cPGResult, "FATAL_ERROR", INT2FIX( PGRES_FATAL_ERROR));
 
     rb_define_method( rb_cPGResult, "status", pgresult_status, 0);
     rb_define_alias( rb_cPGResult, "result", "entries");
