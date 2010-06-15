@@ -14,7 +14,7 @@ end
 
 
 DLs = {
-  "pgsql.so"  => "pgsql.o",
+  "pgsql.so"  => %w(pgsql.o module.o),
 }
 
 DLs.each { |k,v|

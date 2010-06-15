@@ -12,8 +12,6 @@ static VALUE rb_cRational;
 static VALUE rb_cDate;
 static VALUE rb_cDateTime;
 
-static VALUE rb_mPg;
-static VALUE rb_ePGError;
 static VALUE rb_ePGExecError;
 static VALUE rb_ePGResError;
 static VALUE rb_cPGConn;
@@ -167,7 +165,7 @@ static VALUE pgrow_to_hash( VALUE self);
 
 
 
-static PGresult *pqexec_safe( PGconn *conn, const char *cmd);
+static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
 static void      pg_raise_exec( PGconn *conn);
 
 
@@ -177,7 +175,7 @@ void pg_raise_exec( PGconn * conn)
     rb_raise( rb_ePGExecError, PQerrorMessage( conn));
 }
 
-PGresult *pqexec_safe( PGconn * conn, const char *cmd)
+PGresult *pg_pqexec( PGconn * conn, const char *cmd)
 {
     PGresult *result;
 
@@ -805,7 +803,7 @@ pgconn_exec( argc, argv, obj)
     Check_Type( command, T_STRING);
 
     if (RARRAY( params)->len <= 0) {
-        result = pqexec_safe( conn, STR2CSTR( command));
+        result = pg_pqexec( conn, STR2CSTR( command));
     } else {
         int len = RARRAY( params)->len;
         int i;
@@ -988,7 +986,7 @@ pgconn_insert_table( obj, table, values)
     snprintf( RSTRING( buffer)->ptr, RSTRING( buffer)->len,
                 "copy %s from stdin ", STR2CSTR( table));
 
-    result = pqexec_safe( conn, STR2CSTR( buffer));
+    result = pg_pqexec( conn, STR2CSTR( buffer));
     PQclear( result);
 
     for (i = 0; i < RARRAY( values)->len; i++) {
@@ -1032,7 +1030,7 @@ rescue_transaction( obj)
         sprintf( b_rol, "rollback to savepoint %s",
                                         STR2CSTR( rb_ary_entry( s, 0)));
     }
-    pqexec_safe( conn, b_rol);
+    pg_pqexec( conn, b_rol);
     rb_exc_raise( ruby_errinfo);
     return Qnil;
 }
@@ -1091,9 +1089,9 @@ pgconn_transaction( argc, argv, self)
         sprintf( b_beg, "savepoint %s", STR2CSTR( t));
         sprintf( b_com, "release savepoint %s", STR2CSTR( t));
     }
-    pqexec_safe( conn, b_beg);
+    pg_pqexec( conn, b_beg);
     result = rb_ensure( yield_transaction, self, ensure_transaction, self);
-    pqexec_safe( conn, b_com);
+    pg_pqexec( conn, b_com);
     return result;
 }
 
@@ -2837,9 +2835,7 @@ Init_pgsql( void)
     rb_cDate       = RUBY_CLASS( "Date");
     rb_cDateTime   = RUBY_CLASS( "DateTime");
 
-    rb_mPg = rb_define_module( "Pg");
-
-    rb_ePGError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
+    init_pg_module();
 
     rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
 
@@ -2852,8 +2848,7 @@ Init_pgsql( void)
     rb_define_method( rb_ePGResError, "hint", pgreserror_hint, 0);
 
     rb_cPGConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
-    rb_define_const( rb_cPGConn, "VERSION",
-                                  rb_obj_freeze( rb_str_new2( VERSION)));
+
     rb_define_alloc_func( rb_cPGConn, pgconn_alloc);
     rb_define_singleton_method( rb_cPGConn, "connect", pgconn_s_connect, -1);
     rb_define_singleton_alias( rb_cPGConn, "setdb", "connect");

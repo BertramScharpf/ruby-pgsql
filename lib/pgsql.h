@@ -5,13 +5,7 @@
 #ifndef __PGSQL_H
 #define __PGSQL_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-
-#include <ruby.h>
-#include <rubyio.h>
-#include "undef.h"
+#include "module.h"
 
 #include <postgres.h>
 #include <libpq-fe.h>
@@ -19,9 +13,9 @@
 #include <catalog/pg_type.h>        /* from postgres-server */
 #include "undef.h"
 
-
-
-#define VERSION "1.1"
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
 
 
 
