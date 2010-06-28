@@ -13,6 +13,7 @@ static VALUE rb_cDate;
 static VALUE rb_cDateTime;
 
 static VALUE rb_ePGExecError;
+static VALUE rb_ePGConnError;
 static VALUE rb_ePGResError;
 static VALUE rb_cPGConn;
 static VALUE rb_cPGResult;
@@ -666,7 +667,7 @@ pgconn_init( argc, argv, self)
     }
 
     if (PQstatus( conn) == CONNECTION_BAD) {
-        pg_raise_exec( conn);
+        rb_raise( rb_ePGConnError, PQerrorMessage( conn));
     }
 
     Data_Set_Struct( self, conn);
@@ -2838,6 +2839,7 @@ Init_pgsql( void)
     init_pg_module();
 
     rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
+    rb_ePGConnError = rb_define_class_under( rb_mPg, "ConnError", rb_ePGError);
 
     rb_ePGResError = rb_define_class_under( rb_mPg, "ResultError", rb_ePGError);
     rb_define_method( rb_ePGResError, "status", pgreserror_status, 0);
