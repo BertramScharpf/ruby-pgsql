@@ -149,6 +149,7 @@ static int   large_lseek( PGlarge *pglarge, int offset, int whence);
 static VALUE pglarge_tell( VALUE obj);
 static VALUE loread_all(   VALUE obj);
 static VALUE pglarge_read( int argc, VALUE *argv, VALUE obj);
+static VALUE pglarge_each_line( VALUE obj);
 static VALUE pglarge_write( VALUE obj, VALUE buffer);
 static VALUE pglarge_seek( VALUE obj, VALUE offset, VALUE whence);
 static VALUE pglarge_size( VALUE obj);
@@ -2511,7 +2512,7 @@ pglarge_read( argc, argv, obj)
 
     len = NUM2INT( length);
     if (len < 0)
-        rb_raise( rb_ePGError, "nagative length %d given", len);
+        rb_raise( rb_ePGError, "negative length %d given", len);
 
     str = rb_tainted_str_new( 0, len);
     len = lo_read( pglarge->pgconn, pglarge->lo_fd, STR2CSTR( str), len);
@@ -2523,6 +2524,46 @@ pglarge_read( argc, argv, obj)
         RSTRING( str)->len = len;
         return str;
     }
+}
+
+/*
+ * call-seq:
+ *    lrg.each_line() { |line| ... }  -> nil
+ *
+ * Reads a large object line by line.
+ */
+static VALUE
+pglarge_each_line( obj)
+    VALUE obj;
+{
+    PGlarge *pglarge;
+    VALUE line;
+    int len, i, j, s;
+    char buf[ BUFSIZ], *p, *b, c;
+    int ct;
+
+    pglarge = get_pglarge( obj);
+    line = rb_tainted_str_new( 0, 0);
+    RETURN_ENUMERATOR( obj, 0, 0);
+    /* The code below really looks weird but is thoroughly tested. */
+    line = rb_tainted_str_new( 0, 0);
+    do {
+        len = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, BUFSIZ);
+        for (i = 0, j = len, p = buf; j > 0;) {
+            s = i, b = buf + i;
+            do
+                i++, j--;
+            while ((ct = *p++ != '\n') && j > 0);
+            rb_str_cat( line, b, i - s);
+            if (!ct) {
+                rb_yield( line);
+                line = rb_tainted_str_new( 0, 0);
+            }
+        }
+    } while (len == BUFSIZ);
+    if (RSTRING(line)->len > 0)
+        rb_yield( line);
+    return Qnil;
 }
 
 /*
@@ -2926,6 +2967,7 @@ Init_pgsql( void)
     rb_define_method( rb_cPGLarge, "oid", pglarge_oid, 0);
     rb_define_method( rb_cPGLarge, "close", pglarge_close, 0);
     rb_define_method( rb_cPGLarge, "read", pglarge_read, -1);
+    rb_define_method( rb_cPGLarge, "each_line", pglarge_each_line, 0);
     rb_define_method( rb_cPGLarge, "write", pglarge_write, 1);
     rb_define_method( rb_cPGLarge, "seek", pglarge_seek, 2);
     rb_define_method( rb_cPGLarge, "tell", pglarge_tell, 0);
