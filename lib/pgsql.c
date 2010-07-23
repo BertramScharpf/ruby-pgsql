@@ -153,8 +153,6 @@ static VALUE pglarge_each_line( VALUE obj);
 static VALUE pglarge_write( VALUE obj, VALUE buffer);
 static VALUE pglarge_seek( VALUE obj, VALUE offset, VALUE whence);
 static VALUE pglarge_size( VALUE obj);
-static VALUE pglarge_export( VALUE obj, VALUE filename);
-static VALUE pglarge_unlink( VALUE obj);
 static VALUE pgrow_init( VALUE self, VALUE keys);
 static VALUE pgrow_keys( VALUE self);
 static VALUE pgrow_values( VALUE self);
@@ -2190,17 +2188,15 @@ get_pglarge( obj)
     PGlarge *pglarge;
 
     Data_Get_Struct( obj, PGlarge, pglarge);
-    if (pglarge == NULL)
-      rb_raise( rb_ePGError, "invalid large object");
     return pglarge;
 }
 
 /*
  * call-seq:
- *    conn.lo_import( file) -> Pg::Large
+ *    conn.lo_import( file) -> oid
  *
- * Import a file to a large object. Returns a Pg::Large instance on success. On
- * failure, it raises a PGError exception.
+ * Import a file to a large object. Returns an oid on success. On
+ * failure, it raises a Pg::Error exception.
  */
 static VALUE
 pgconn_loimport( obj, filename)
@@ -2215,7 +2211,7 @@ pgconn_loimport( obj, filename)
     lo_oid = lo_import( conn, STR2CSTR( filename));
     if (lo_oid == 0)
         pg_raise_exec( conn);
-    return pglarge_new( conn, lo_oid, -1);
+    return INT2NUM( lo_oid);
 }
 
 /*
@@ -2247,7 +2243,7 @@ pgconn_loexport( obj, lo_oid, filename)
  * call-seq:
  *    lrg.close()
  *
- * Closes a large object. Closed when they are garbage-collected.
+ * Closes a large object.
  */
 static VALUE
 pglarge_close( obj)
@@ -2257,10 +2253,12 @@ pglarge_close( obj)
     int ret;
 
     pglarge = get_pglarge( obj);
-    ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
-    if (ret < 0)
-        rb_raise( rb_ePGError, "cannot close large object");
-    DATA_PTR( obj) = 0;
+    if (pglarge != NULL) {
+        ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
+        if (ret < 0)
+            rb_raise( rb_ePGError, "cannot close large object");
+        DATA_PTR( obj) = NULL;
+    }
     return Qnil;
 }
 
@@ -2268,9 +2266,9 @@ pglarge_close( obj)
 /*
  * call-seq:
  *    conn.lo_create( [mode] ) -> Pg::Large
- *    conn.lo_create( [mode] ) { |pglarge| ... } -> obj
+ *    conn.lo_create( [mode] ) { |pglarge| ... } -> oid
  *
- * Returns a Pg::Large instance on success. On failure, it raises PGError
+ * Returns a Pg::Large instance on success. On failure, it raises Pg::Error
  * exception. <i>(See #lo_open for information on _mode_.)</i>
  *
  * If a block is given, the blocks result is returned.
@@ -2303,9 +2301,10 @@ pgconn_locreate( argc, argv, obj)
         rb_raise( rb_ePGError, "can't open large object");
 
     lob = pglarge_new( conn, lo_oid, fd);
-    if (rb_block_given_p())
-        return rb_ensure( rb_yield, lob, pglarge_close, lob);
-    else
+    if (rb_block_given_p()) {
+        rb_ensure( rb_yield, lob, pglarge_close, lob);
+        return INT2NUM( lo_oid);
+    } else
         return lob;
 }
 
@@ -2317,7 +2316,7 @@ pgconn_locreate( argc, argv, obj)
  * Open a large object of _oid_. Returns a Pg::Large instance on success.
  * The _mode_ argument specifies the mode for the opened large object,
  * which is either +INV_READ+, or +INV_WRITE+.
- * * If _mode_ On failure, it raises a PGError exception.
+ * * If _mode_ On failure, it raises a Pg::Error exception.
  * * If _mode_ is omitted, the default is +INV_READ+.
  *
  * If a block is given, the blocks result is returned.
@@ -2629,46 +2628,6 @@ pglarge_size( obj)
     return INT2NUM( end);
 }
 
-/*
- * call-seq:
- *    lrg.export( file )
- *
- * Saves the large object to a file.
- */
-static VALUE
-pglarge_export( obj, filename)
-    VALUE obj, filename;
-{
-    PGlarge *pglarge = get_pglarge( obj);
-
-    Check_Type( filename, T_STRING);
-
-    if (!lo_export( pglarge->pgconn, pglarge->lo_oid, STR2CSTR( filename))) {
-        pg_raise_exec( pglarge->pgconn);
-    }
-    return Qnil;
-}
-
-/*
- * call-seq:
- *    lrg.unlink()
- *
- * Deletes the large object.
- */
-static VALUE
-pglarge_unlink( obj)
-    VALUE obj;
-{
-    PGlarge *pglarge = get_pglarge( obj);
-
-    if (!lo_unlink( pglarge->pgconn, pglarge->lo_oid)) {
-        pg_raise_exec( pglarge->pgconn);
-    }
-    DATA_PTR( obj) = 0;
-
-    return Qnil;
-}
-
 static VALUE
 pgrow_init( self, keys)
     VALUE self, keys;
@@ -2820,7 +2779,6 @@ pgrow_to_hash( self)
     return result;
 }
 
-/* Large Object support */
 
 /********************************************************************
  *
@@ -2954,14 +2912,14 @@ Init_pgsql( void)
 
     rb_define_method( rb_cPGConn, "lo_import", pgconn_loimport, 1);
     rb_define_alias( rb_cPGConn, "loimport", "lo_import");
-    rb_define_method( rb_cPGConn, "lo_create", pgconn_locreate, -1);
-    rb_define_alias( rb_cPGConn, "locreate", "lo_create");
-    rb_define_method( rb_cPGConn, "lo_open", pgconn_loopen, -1);
-    rb_define_alias( rb_cPGConn, "loopen", "lo_open");
     rb_define_method( rb_cPGConn, "lo_export", pgconn_loexport, 2);
     rb_define_alias( rb_cPGConn, "loexport", "lo_export");
     rb_define_method( rb_cPGConn, "lo_unlink", pgconn_lounlink, 1);
     rb_define_alias( rb_cPGConn, "lounlink", "lo_unlink");
+    rb_define_method( rb_cPGConn, "lo_create", pgconn_locreate, -1);
+    rb_define_alias( rb_cPGConn, "locreate", "lo_create");
+    rb_define_method( rb_cPGConn, "lo_open", pgconn_loopen, -1);
+    rb_define_alias( rb_cPGConn, "loopen", "lo_open");
 
     rb_cPGLarge = rb_define_class_under( rb_mPg, "Large", rb_cObject);
     rb_define_method( rb_cPGLarge, "oid", pglarge_oid, 0);
@@ -2972,8 +2930,6 @@ Init_pgsql( void)
     rb_define_method( rb_cPGLarge, "seek", pglarge_seek, 2);
     rb_define_method( rb_cPGLarge, "tell", pglarge_tell, 0);
     rb_define_method( rb_cPGLarge, "size", pglarge_size, 0);
-    rb_define_method( rb_cPGLarge, "export", pglarge_export, 1);
-    rb_define_method( rb_cPGLarge, "unlink", pglarge_unlink, 0);
 
     rb_define_const( rb_cPGLarge, "INV_WRITE", INT2FIX( INV_WRITE));
     rb_define_const( rb_cPGLarge, "INV_READ", INT2FIX( INV_READ));
