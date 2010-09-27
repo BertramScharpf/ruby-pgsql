@@ -2145,7 +2145,7 @@ pgresult_oid( obj)
     VALUE obj;
 {
     Oid n = PQoidValue( get_pgresult( obj));
-    return  n == InvalidOid ? Qnil : INT2NUM( n);
+    return n == InvalidOid ? Qnil : INT2NUM( n);
 }
 
 /*
