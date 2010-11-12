@@ -2255,8 +2255,10 @@ pglarge_close( obj)
     pglarge = get_pglarge( obj);
     if (pglarge != NULL) {
         ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
-        if (ret < 0)
+        if (ret < 0 &&
+                PQtransactionStatus( pglarge->pgconn) != PQTRANS_INERROR) {
             rb_raise( rb_ePGError, "cannot close large object");
+        }
         DATA_PTR( obj) = NULL;
     }
     return Qnil;
