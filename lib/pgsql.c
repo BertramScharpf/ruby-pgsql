@@ -5,6 +5,7 @@
 #include "pgsql.h"
 
 #include <st.h>
+#include <intern.h>
 
 
 static VALUE rb_cBigDecimal;
@@ -21,7 +22,6 @@ static VALUE rb_cPGLarge;
 static VALUE rb_cPGRow;
 
 static ID id_new;
-static ID id_savepoints;
 static ID id_on_notice;
 static ID id_keys;
 static ID id_gsub;
@@ -68,9 +68,11 @@ static VALUE pgconn_get_notify( VALUE obj);
 static void free_pgconn( PGconn *ptr);
 static VALUE pgconn_insert_table( VALUE obj, VALUE table, VALUE values);
 static VALUE rescue_transaction( VALUE obj);
-static VALUE ensure_transaction( VALUE obj);
 static VALUE yield_transaction( VALUE obj);
 static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE obj);
+static VALUE rescue_subtransaction( VALUE obj);
+static VALUE yield_subtransaction( VALUE obj);
+static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE obj);
 
 static VALUE pgconn_putline( VALUE obj, VALUE str);
 static VALUE pgconn_getline( VALUE obj);
@@ -165,8 +167,9 @@ static VALUE pgrow_to_hash( VALUE self);
 
 
 
-static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
 static void      pg_raise_exec( PGconn *conn);
+static void      pg_checkresult( PGconn *conn, PGresult *result);
+static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
 
 
 
@@ -175,14 +178,36 @@ void pg_raise_exec( PGconn * conn)
     rb_raise( rb_ePGExecError, PQerrorMessage( conn));
 }
 
-PGresult *pg_pqexec( PGconn * conn, const char *cmd)
+void pg_checkresult( PGconn *conn, PGresult *result)
+{
+    if (result == NULL) {
+        pg_raise_exec( conn);
+    }
+    switch (PQresultStatus( result)) {
+        case PGRES_TUPLES_OK:
+        case PGRES_COPY_OUT:
+        case PGRES_COPY_IN:
+        case PGRES_EMPTY_QUERY:
+        case PGRES_COMMAND_OK:
+            break;
+        case PGRES_BAD_RESPONSE:
+        case PGRES_FATAL_ERROR:
+        case PGRES_NONFATAL_ERROR:
+            rb_exc_raise( pgreserror_new( result));
+            break;
+        default:
+            PQclear( result);
+            rb_raise( rb_ePGError, "internal error: unknown result status.");
+            break;
+    }
+}
+
+PGresult *pg_pqexec( PGconn *conn, const char *cmd)
 {
     PGresult *result;
 
     result = PQexec( conn, cmd);
-    if (result == NULL) {
-        pg_raise_exec( conn);
-    }
+    pg_checkresult( conn, result);
     return result;
 }
 
@@ -821,8 +846,7 @@ pgconn_exec( argc, argv, obj)
         }
         result = PQexecParams( conn, STR2CSTR( command), len,
                                 NULL, values, NULL, NULL, 0);
-        if (result == NULL)
-            pg_raise_exec( conn);
+        pg_checkresult( conn, result);
     }
 
     return yield_or_return_result( pgresult_new( conn, result));
@@ -869,6 +893,7 @@ pgconn_async_exec( obj, str)
     }
 
     result = PQgetResult( conn);
+    pg_checkresult( conn, result);
     return yield_or_return_result( pgresult_new( conn, result));
 }
 
@@ -1013,36 +1038,13 @@ pgconn_insert_table( obj, table, values)
 }
 
 
+
 static VALUE
 rescue_transaction( obj)
     VALUE obj;
 {
-    PGconn *conn;
-    VALUE s;
-    char b_rol[ 48];
-
-    conn = get_pgconn( obj);
-    s = rb_ivar_get( obj, id_savepoints);
-
-    if (RARRAY( s)->len - 1 <= 0) {
-        sprintf( b_rol, "rollback");
-    } else {
-        sprintf( b_rol, "rollback to savepoint %s",
-                                        STR2CSTR( rb_ary_entry( s, 0)));
-    }
-    pg_pqexec( conn, b_rol);
+    pg_pqexec( get_pgconn( obj), "rollback;");
     rb_exc_raise( ruby_errinfo);
-    return Qnil;
-}
-
-static VALUE
-ensure_transaction( obj)
-    VALUE obj;
-{
-    VALUE s;
-
-    s = rb_ivar_get( obj, id_savepoints);
-    rb_ary_shift( s);
     return Qnil;
 }
 
@@ -1050,14 +1052,23 @@ static VALUE
 yield_transaction( obj)
     VALUE obj;
 {
-    return rb_rescue( rb_yield, obj, rescue_transaction, obj);
+    VALUE r;
+
+    r = rb_yield( obj);
+    pg_pqexec( get_pgconn( obj), "commit;");
+    return r;
 }
 
 /*
  * call-seq:
- *    conn.transaction { |conn| ... }
+ *    conn.transaction( ser = nil, ro = nil) { |conn| ... }
  *
- * Open and close a transaction block. The blocks may be nested.
+ * Open and close a transaction block. The isolation level will be
+ * 'serializable' if +ser+ is true, else 'repeatable read'.
+ * +ro+ means 'read only'.
+ *
+ * (In C++ terms, +ro+ is const, and +ser+ is not volatile.)
+ *
  */
 static VALUE
 pgconn_transaction( argc, argv, self)
@@ -1065,35 +1076,90 @@ pgconn_transaction( argc, argv, self)
     VALUE *argv;
     VALUE self;
 {
-    PGconn *conn;
-    VALUE result;
-    VALUE s, t;
-    char b_beg[ 32], b_com[ 32];
+    VALUE ser, ro;
+    VALUE cmd;
+    int p;
 
-    conn = get_pgconn( self);
-
-    s = rb_ivar_get( (VALUE) self, id_savepoints);
-    if (NIL_P( s)) {
-        s = rb_ary_new();
-        rb_ivar_set( self, id_savepoints, s);
+    rb_scan_args( argc, argv, "02", &ser, &ro);
+    cmd = rb_str_buf_new2( "begin");
+    p = 0;
+    if (!NIL_P(ser)) {
+        rb_str_buf_cat2( cmd, " isolation level ");
+        rb_str_buf_cat2( cmd, (RTEST(ser) ? "serializable" : "read committed"));
+        p++;
     }
-
-    if (RARRAY( s)->len == 0) {
-        t = Qnil;
-        rb_ary_unshift( s, rb_str_new( "pgsql_0000", 10));
-        sprintf( b_beg, "begin");
-        sprintf( b_com, "commit");
-    } else {
-        t = rb_funcall( rb_ary_entry( s, 0), rb_intern( "succ"), 0);
-        rb_ary_unshift( s, t);
-        sprintf( b_beg, "savepoint %s", STR2CSTR( t));
-        sprintf( b_com, "release savepoint %s", STR2CSTR( t));
+    if (!NIL_P(ro)) {
+        if (p) rb_str_buf_cat2( cmd, ",");
+        rb_str_buf_cat2( cmd, " read ");
+        rb_str_buf_cat2( cmd, (RTEST(ro)  ? "only" : "write"));
     }
-    pg_pqexec( conn, b_beg);
-    result = rb_ensure( yield_transaction, self, ensure_transaction, self);
-    pg_pqexec( conn, b_com);
-    return result;
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( self), STR2CSTR(cmd));
+    return rb_rescue( yield_transaction, self, rescue_transaction, self);
 }
+
+
+
+
+static VALUE
+rescue_subtransaction( ary)
+    VALUE ary;
+{
+    VALUE cmd;
+
+    cmd = rb_str_buf_new2( "rollback to savepoint ");
+    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), STR2CSTR(cmd));
+
+    rb_exc_raise( ruby_errinfo);
+    return Qnil;
+}
+
+static VALUE
+yield_subtransaction( ary)
+    VALUE ary;
+{
+    VALUE r, cmd;
+
+    r = rb_yield( ary);
+
+    cmd = rb_str_buf_new2( "release savepoint ");
+    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), STR2CSTR(cmd));
+
+    return r;
+}
+
+/*
+ * call-seq:
+ *    conn.subtransaction( nam, *args) { |conn,sp| ... }
+ *
+ * Open and close a transaction savepoint. The savepoints name +nam+ may
+ * contain % directives that will be expanded by +args+.
+ */
+static VALUE
+pgconn_subtransaction( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE sp, par, cmd, ya;
+
+    if (rb_scan_args( argc, argv, "1*", &sp, &par) > 1)
+        sp = rb_str_format(RARRAY_LEN(par), RARRAY_PTR(par), sp);
+    rb_str_freeze( sp);
+
+    cmd = rb_str_buf_new2( "savepoint ");
+    rb_str_buf_append( cmd, sp);
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( self), STR2CSTR(cmd));
+
+    ya = rb_ary_new3( 2, self, sp);
+    return rb_rescue( yield_subtransaction, ya, rescue_subtransaction, ya);
+}
+
 
 
 /*
@@ -1539,25 +1605,6 @@ pgresult_new( conn, result)
     PGresult *result;
 {
     VALUE res;
-
-    switch (PQresultStatus( result)) {
-    case PGRES_TUPLES_OK:
-    case PGRES_COPY_OUT:
-    case PGRES_COPY_IN:
-    case PGRES_EMPTY_QUERY:
-    case PGRES_COMMAND_OK:      /* no data will be received */
-        break;
-
-    case PGRES_BAD_RESPONSE:
-    case PGRES_FATAL_ERROR:
-    case PGRES_NONFATAL_ERROR:
-        rb_exc_raise( pgreserror_new( result));
-        break;
-    default:
-        PQclear( result);
-        rb_raise( rb_ePGError, "internal error: unknown result status.");
-        break;
-    }
 
     res = Data_Wrap_Struct( rb_cPGResult, 0, free_pgresult, result);
     rb_obj_call_init( res, 0, NULL);
@@ -2896,6 +2943,8 @@ Init_pgsql( void)
     rb_define_method( rb_cPGConn, "get_notify", pgconn_get_notify, 0);
     rb_define_method( rb_cPGConn, "insert_table", pgconn_insert_table, 2);
     rb_define_method( rb_cPGConn, "transaction", pgconn_transaction, -1);
+    rb_define_method( rb_cPGConn, "subtransaction", pgconn_subtransaction, -1);
+    rb_define_alias( rb_cPGConn, "savepoint", "subtransaction");
     rb_define_method( rb_cPGConn, "putline", pgconn_putline, 1);
     rb_define_method( rb_cPGConn, "getline", pgconn_getline, 0);
     rb_define_method( rb_cPGConn, "endcopy", pgconn_endcopy, 0);
@@ -2989,7 +3038,6 @@ Init_pgsql( void)
     rb_define_method( rb_cPGRow, "to_hash", pgrow_to_hash, 0);
 
     id_new        = rb_intern( "new");
-    id_savepoints = rb_intern( "savepoints");
     id_on_notice  = rb_intern( "@keys");
     id_keys       = rb_intern( "@on_notice");
     id_gsub       = rb_intern( "gsub");

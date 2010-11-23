@@ -17,6 +17,7 @@ have_library "pq"
 have_header "ruby.h"
 have_header "rubyio.h"
 have_header "st.h"
+have_header "intern.h"
 
 have_header "postgres.h"
 have_header "libpq-fe.h"
