@@ -8,9 +8,7 @@
 #include "module.h"
 
 #include <postgres.h>
-#include <libpq-fe.h>
-#include <libpq/libpq-fs.h>
-#include <catalog/pg_type.h>        /* from postgres-server */
+#include <catalog/pg_type.h>
 #include "undef.h"
 
 #include <stdio.h>
@@ -38,15 +36,6 @@
 #define RUBY_CLASS(name) rb_const_get(rb_cObject, rb_intern(name))
 
 #define SINGLE_QUOTE '\''
-
-/* Large Object support */
-typedef struct pglarge_object
-{
-    PGconn *pgconn;
-    Oid     lo_oid;
-    int     lo_fd;
-} PGlarge;
-
 
 #endif
 

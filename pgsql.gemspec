@@ -31,14 +31,20 @@ EOT
   s.has_rdoc          = true
   s.extensions        = "lib/mkrf_conf"
   s.files             = %w(
+                          bin/pgbackup
                           lib/Rakefile
                           lib/mkrf_conf
+                          lib/undef.h
                           lib/pgsql.c
                           lib/pgsql.h
+                          lib/result.c
+                          lib/result.h
+                          lib/row.c
+                          lib/row.h
+                          lib/large.c
+                          lib/large.h
                           lib/module.c
                           lib/module.h
-                          lib/undef.h
-                          bin/pgbackup
                         )
 end
 
