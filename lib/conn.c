@@ -8,6 +8,9 @@
 #include <st.h>
 
 
+#define rb_check_hash_type(x)  rb_check_convert_type(x, T_HASH, "Hash", "to_hash")
+
+
 static PGconn *try_connectdb( VALUE arg);
 static PGconn *try_setdbLogin( VALUE args);
 static int     build_key_value_string_i( VALUE key, VALUE value, VALUE result);
@@ -33,6 +36,9 @@ static VALUE pgconn_tty( VALUE obj);
 static VALUE pgconn_user( VALUE obj);
 static VALUE pgconn_status( VALUE obj);
 static VALUE pgconn_error( VALUE obj);
+
+static VALUE pgconn_trace( VALUE obj, VALUE port);
+static VALUE pgconn_untrace( VALUE obj);
 
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
@@ -94,6 +100,13 @@ try_setdbLogin( args)
 
     rb_funcall( args, rb_intern( "flatten!"), 0);
 
+#define AssignCheckedStringValue(cstring, rstring) do { \
+    if (!NIL_P(temp = rstring)) { \
+        Check_Type(temp, T_STRING); \
+        cstring = STR2CSTR(temp); \
+    } \
+} while (0)
+
     AssignCheckedStringValue( host, rb_ary_entry( args, 0));
     if (!NIL_P( temp = rb_ary_entry( args, 1)) && NUM2INT( temp) != -1) {
         temp = rb_obj_as_string( temp);
@@ -104,6 +117,8 @@ try_setdbLogin( args)
     AssignCheckedStringValue( dbname, rb_ary_entry( args, 4));
     AssignCheckedStringValue( login,  rb_ary_entry( args, 5));
     AssignCheckedStringValue( pwd,    rb_ary_entry( args, 6));
+
+#undef AssignCheckedStringValue
 
     return PQsetdbLogin( host, port, opt, tty, dbname, login, pwd);
 }
@@ -422,7 +437,8 @@ pgconn_init( argc, argv, self)
     if (PQstatus( conn) == CONNECTION_BAD)
         pg_raise_conn( conn);
 
-    Data_Set_Struct( self, conn);
+    Check_Type( self, T_DATA);
+    DATA_PTR(self) = conn;
     return self;
 }
 
@@ -600,6 +616,43 @@ pgconn_error( obj)
 }
 
 
+/*
+ * call-seq:
+ *    conn.trace( port)
+ *
+ * Enables tracing message passing between backend.
+ * The trace message will be written to the _port_ object,
+ * which is an instance of the class +File+.
+ */
+VALUE
+pgconn_trace( obj, port)
+    VALUE obj, port;
+{
+    OpenFile *fp;
+
+    Check_Type( port, T_FILE);
+    GetOpenFile( port, fp);
+    PQtrace( get_pgconn( obj), fp->f2?fp->f2:fp->f);
+    return obj;
+}
+
+/*
+ * call-seq:
+ *    conn.untrace()
+ *
+ * Disables the message tracing.
+ */
+VALUE
+pgconn_untrace( obj)
+    VALUE obj;
+{
+    PQuntrace( get_pgconn( obj));
+    return obj;
+}
+
+
+
+
 
 
 /*
@@ -744,27 +797,29 @@ void init_pg_conn( void)
 {
     rb_require( "date");
     rb_require( "time");
-    rb_cDate       = RUBY_CLASS( "Date");
-    rb_cDateTime   = RUBY_CLASS( "DateTime");
-    rb_cRational   = RUBY_CLASS( "Rational");
+    rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
+    rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
+    rb_cRational   = rb_const_get( rb_cObject, rb_intern( "Rational"));
 
     rb_cPGConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
+#define RDSA(klass,new,old) rb_define_alias(rb_singleton_class(klass),new,old)
     rb_define_alloc_func( rb_cPGConn, pgconn_alloc);
     rb_define_singleton_method( rb_cPGConn, "connect", pgconn_s_connect, -1);
-    rb_define_singleton_alias( rb_cPGConn, "setdb", "connect");
-    rb_define_singleton_alias( rb_cPGConn, "setdblogin", "connect");
-    rb_define_singleton_alias( rb_cPGConn, "open", "connect");
+    RDSA( rb_cPGConn, "setdb", "connect");
+    RDSA( rb_cPGConn, "setdblogin", "connect");
+    RDSA( rb_cPGConn, "open", "connect");
 
     rb_define_singleton_method( rb_cPGConn, "escape", pgconn_s_escape, 1);
     rb_define_singleton_method( rb_cPGConn, "quote", pgconn_s_quote, 1);
-    rb_define_singleton_alias( rb_cPGConn, "format", "quote");
+    RDSA( rb_cPGConn, "format", "quote");
     rb_define_singleton_method( rb_cPGConn, "escape_bytea",
                                                     pgconn_s_escape_bytea, 1);
     rb_define_singleton_method( rb_cPGConn, "unescape_bytea",
                                                   pgconn_s_unescape_bytea, 1);
     rb_define_singleton_method( rb_cPGConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
+#undef RDSA
 
     rb_define_const( rb_cPGConn, "CONNECTION_OK",  INT2FIX( CONNECTION_OK));
     rb_define_const( rb_cPGConn, "CONNECTION_BAD", INT2FIX( CONNECTION_BAD));

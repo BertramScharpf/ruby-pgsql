@@ -17,9 +17,6 @@ extern PGconn *get_pgconn( VALUE obj);
 /*----------------------------------------------------------------*/
 
 /*----------------------------------------------------------------*/
-extern VALUE pgconn_trace( VALUE obj, VALUE port);
-extern VALUE pgconn_untrace( VALUE obj);
-
 extern VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
 extern VALUE pgconn_query( int argc, VALUE *argv, VALUE obj);
 extern VALUE pgconn_select_one( int argc, VALUE *argv, VALUE self);

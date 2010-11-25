@@ -47,10 +47,6 @@ static int has_numeric_scale( int typmod);
 
 
 
-
-
-
-
 static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
 
 
@@ -611,42 +607,6 @@ pgconn_on_notice( self)
 
 /*
  * call-seq:
- *    conn.trace( port )
- *
- * Enables tracing message passing between backend.
- * The trace message will be written to the _port_ object,
- * which is an instance of the class +File+.
- */
-VALUE
-pgconn_trace( obj, port)
-    VALUE obj, port;
-{
-    OpenFile* fp;
-
-    Check_Type( port, T_FILE);
-    GetOpenFile( port, fp);
-
-    PQtrace( get_pgconn( obj), fp->f2?fp->f2:fp->f);
-
-    return obj;
-}
-
-/*
- * call-seq:
- *    conn.untrace()
- *
- * Disables the message tracing.
- */
-VALUE
-pgconn_untrace( obj)
-    VALUE obj;
-{
-    PQuntrace( get_pgconn( obj));
-    return obj;
-}
-
-/*
- * call-seq:
  *    conn.transaction_status()
  *
  * returns one of the following statuses:
@@ -889,7 +849,7 @@ void
 Init_pgsql( void)
 {
     rb_require( "bigdecimal");
-    rb_cBigDecimal = RUBY_CLASS( "BigDecimal");
+    rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
 
     init_pg_module();
     init_pg_large();
