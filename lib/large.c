@@ -15,15 +15,16 @@ typedef struct pglarge_object
 } PGlarge;
 
 
-static VALUE pglarge_oid( VALUE obj);
 
 static PGlarge *get_pglarge( VALUE obj);
+static VALUE    loopen_int( PGconn *conn, int objid, int nmode);
 static void     free_pglarge( PGlarge *ptr);
 static int      large_tell(  PGlarge *pglarge);
 static int      large_lseek( PGlarge *pglarge, int offset, int whence);
 static VALUE    loread_all( VALUE obj);
 static VALUE    pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd);
 
+static VALUE pglarge_oid( VALUE obj);
 static VALUE pglarge_close( VALUE obj);
 static VALUE pglarge_read( int argc, VALUE *argv, VALUE obj);
 static VALUE pglarge_each_line( VALUE obj);
@@ -37,7 +38,7 @@ VALUE rb_cPGLarge;
 
 
 
-PGlarge*
+PGlarge *
 get_pglarge( obj)
     VALUE obj;
 {
@@ -45,6 +46,23 @@ get_pglarge( obj)
 
     Data_Get_Struct( obj, PGlarge, pglarge);
     return pglarge;
+}
+
+VALUE
+loopen_int( conn, lo_oid, mode)
+    PGconn *conn;
+    int lo_oid;
+    int mode;
+{
+    int fd;
+    VALUE lob;
+
+    fd = lo_open( conn, lo_oid, mode);
+    if (fd < 0)
+        rb_raise( rb_ePGError, "can't open large object");
+    lob = pglarge_new( conn, lo_oid, fd);
+    return rb_block_given_p() ? 
+        rb_ensure( rb_yield, lob, pglarge_close, lob) : lob;
 }
 
 void
@@ -128,43 +146,26 @@ locreate_pgconn( conn, nmode)
 {
     int mode;
     Oid lo_oid;
-    int fd;
-    VALUE lob;
 
     mode = NIL_P(nmode) ? INV_WRITE : FIX2INT( nmode);
-
     lo_oid = lo_creat( conn, mode);
     if (lo_oid == 0)
         rb_raise( rb_ePGError, "can't creat large object");
-    fd = lo_open( conn, lo_oid, mode);
-    if (fd < 0)
-        rb_raise( rb_ePGError, "can't open large object");
-
-    lob = pglarge_new( conn, lo_oid, fd);
-    return rb_block_given_p() ?
-        rb_ensure( rb_yield, lob, pglarge_close, lob) : lob;
+    return loopen_int( conn, lo_oid, mode);
 }
 
 VALUE
 loopen_pgconn( conn, objid, nmode)
     PGconn *conn;
-    VALUE nmode;
     VALUE objid;
+    VALUE nmode;
 {
     Oid lo_oid;
     int mode;
-    int fd;
-    VALUE lob;
 
     lo_oid = NUM2INT( objid);
     mode = NIL_P( nmode) ? INV_READ : FIX2INT( nmode);
-
-    fd = lo_open( conn, lo_oid, mode);
-    if (fd < 0)
-        rb_raise( rb_ePGError, "can't open large object");
-    lob = pglarge_new( conn, lo_oid, fd);
-    return rb_block_given_p() ? 
-        rb_ensure( rb_yield, lob, pglarge_close, lob) : lob;
+    return loopen_int( conn, lo_oid, mode);
 }
 
 

@@ -37,6 +37,8 @@ EOT
                           lib/undef.h
                           lib/pgsql.c
                           lib/pgsql.h
+                          lib/conn.c
+                          lib/conn.h
                           lib/result.c
                           lib/result.h
                           lib/row.c

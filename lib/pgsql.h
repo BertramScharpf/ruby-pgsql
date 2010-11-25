@@ -35,7 +35,5 @@
 
 #define RUBY_CLASS(name) rb_const_get(rb_cObject, rb_intern(name))
 
-#define SINGLE_QUOTE '\''
-
 #endif
 
