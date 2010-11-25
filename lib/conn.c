@@ -21,12 +21,18 @@ static VALUE pgconn_s_translate_results_set( VALUE self, VALUE fact);
 
 static VALUE pgconn_alloc( VALUE klass);
 static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_close( VALUE obj);
+static VALUE pgconn_reset( VALUE obj);
+static VALUE pgconn_protocol_version( VALUE obj);
+static VALUE pgconn_server_version( VALUE obj);
 static VALUE pgconn_db( VALUE obj);
 static VALUE pgconn_host( VALUE obj);
 static VALUE pgconn_options( VALUE obj);
 static VALUE pgconn_port( VALUE obj);
 static VALUE pgconn_tty( VALUE obj);
-extern VALUE pgconn_user( VALUE obj);
+static VALUE pgconn_user( VALUE obj);
+static VALUE pgconn_status( VALUE obj);
+static VALUE pgconn_error( VALUE obj);
 
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
@@ -422,6 +428,68 @@ pgconn_init( argc, argv, self)
 
 /*
  * call-seq:
+ *    conn.close()
+ *
+ * Closes the backend connection.
+ */
+VALUE
+pgconn_close( obj)
+    VALUE obj;
+{
+    PQfinish( get_pgconn( obj));
+    DATA_PTR( obj) = NULL;
+    return Qnil;
+}
+
+/*
+ * call-seq:
+ *    conn.reset()
+ *
+ * Resets the backend connection. This method closes the backend connection
+ * and tries to re-connect.
+ */
+VALUE
+pgconn_reset( obj)
+    VALUE obj;
+{
+    PQreset( get_pgconn( obj));
+    return obj;
+}
+
+/*
+ * call-seq:
+ *  conn.protocol_version -> Integer
+ *
+ * The 3.0 protocol will normally be used when communicating with PostgreSQL
+ * 7.4 or later servers; pre-7.4 servers support only protocol 2.0. (Protocol
+ * 1.0 is obsolete and not supported by libpq.)
+ */
+VALUE
+pgconn_protocol_version( obj)
+    VALUE obj;
+{
+    return INT2NUM( PQprotocolVersion( get_pgconn( obj)));
+}
+
+/*
+ * call-seq:
+ *   conn.server_version -> Integer
+ *
+ * The number is formed by converting the major, minor, and revision numbers
+ * into two-decimal-digit numbers and appending them together. For example,
+ * version 7.4.2 will be returned as 70402, and version 8.1 will be returned
+ * as 80100 (leading zeroes are not shown). Zero is returned if the connection
+ * is bad.
+ */
+VALUE
+pgconn_server_version( obj)
+    VALUE obj;
+{
+    return INT2NUM( PQserverVersion( get_pgconn( obj)));
+}
+
+/*
+ * call-seq:
  *    conn.db()
  *
  * Returns the connected database name.
@@ -502,6 +570,33 @@ pgconn_user( obj)
 {
     char *user = PQuser( get_pgconn( obj));
     return user == NULL ? Qnil : rb_tainted_str_new2( user);
+}
+
+/*
+ * call-seq:
+ *    conn.status()
+ *
+ * This may return the values +CONNECTION_OK+ or +CONNECTION_BAD+.
+ */
+VALUE
+pgconn_status( obj)
+    VALUE obj;
+{
+    return INT2NUM( PQstatus( get_pgconn( obj)));
+}
+
+/*
+ * call-seq:
+ *    conn.error()
+ *
+ * Returns the error message about connection.
+ */
+VALUE
+pgconn_error( obj)
+    VALUE obj;
+{
+    char *error = PQerrorMessage( get_pgconn( obj));
+    return error != NULL ? rb_tainted_str_new2( error) : Qnil;
 }
 
 
@@ -675,6 +770,12 @@ void init_pg_conn( void)
     rb_define_const( rb_cPGConn, "CONNECTION_BAD", INT2FIX( CONNECTION_BAD));
 
     rb_define_method( rb_cPGConn, "initialize", pgconn_init, -1);
+    rb_define_method( rb_cPGConn, "close", pgconn_close, 0);
+    rb_define_alias( rb_cPGConn, "finish", "close");
+    rb_define_method( rb_cPGConn, "reset", pgconn_reset, 0);
+    rb_define_method( rb_cPGConn, "protocol_version",
+                                                   pgconn_protocol_version, 0);
+    rb_define_method( rb_cPGConn, "server_version", pgconn_server_version, 0);
     rb_define_method( rb_cPGConn, "db", pgconn_db, 0);
     rb_define_alias( rb_cPGConn, "dbname", "db");
     rb_define_method( rb_cPGConn, "host", pgconn_host, 0);
@@ -682,12 +783,9 @@ void init_pg_conn( void)
     rb_define_method( rb_cPGConn, "port", pgconn_port, 0);
     rb_define_method( rb_cPGConn, "tty", pgconn_tty, 0);
     rb_define_method( rb_cPGConn, "user", pgconn_user, 0);
-
     rb_define_method( rb_cPGConn, "status", pgconn_status, 0);
     rb_define_method( rb_cPGConn, "error", pgconn_error, 0);
-    rb_define_method( rb_cPGConn, "close", pgconn_close, 0);
-    rb_define_alias( rb_cPGConn, "finish", "close");
-    rb_define_method( rb_cPGConn, "reset", pgconn_reset, 0);
+
     rb_define_method( rb_cPGConn, "trace", pgconn_trace, 1);
     rb_define_method( rb_cPGConn, "untrace", pgconn_untrace, 0);
     rb_define_method( rb_cPGConn, "exec", pgconn_exec, -1);
@@ -708,9 +806,6 @@ void init_pg_conn( void)
     rb_define_method( rb_cPGConn, "on_notice", pgconn_on_notice, 0);
     rb_define_method( rb_cPGConn, "transaction_status",
                                                  pgconn_transaction_status, 0);
-    rb_define_method( rb_cPGConn, "protocol_version",
-                                                   pgconn_protocol_version, 0);
-    rb_define_method( rb_cPGConn, "server_version", pgconn_server_version, 0);
     rb_define_method( rb_cPGConn, "quote", pgconn_quote, 1);
 
     rb_define_method( rb_cPGConn, "client_encoding", pgconn_client_encoding, 0);

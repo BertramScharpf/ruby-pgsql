@@ -138,37 +138,6 @@ format_array_element( obj)
     }
 }
 
-/*
- * call-seq:
- *    conn.close
- *
- * Closes the backend connection.
- */
-VALUE
-pgconn_close( obj)
-    VALUE obj;
-{
-    PQfinish( get_pgconn( obj));
-    DATA_PTR( obj) = NULL;
-    return Qnil;
-}
-
-
-/*
- * call-seq:
- *    conn.reset()
- *
- * Resets the backend connection. This method closes the backend  connection
- * and tries to re-connect.
- */
-VALUE
-pgconn_reset( obj)
-    VALUE obj;
-{
-    PQreset( get_pgconn( obj));
-    return obj;
-}
-
 VALUE
 yield_or_return_result( result)
     VALUE result;
@@ -642,33 +611,6 @@ pgconn_on_notice( self)
 
 /*
  * call-seq:
- *    conn.status()
- *
- * MISSING: documentation
- */
-VALUE
-pgconn_status( obj)
-    VALUE obj;
-{
-    return INT2NUM( PQstatus( get_pgconn( obj)));
-}
-
-/*
- * call-seq:
- *    conn.error()
- *
- * Returns the error message about connection.
- */
-VALUE
-pgconn_error( obj)
-    VALUE obj;
-{
-    char *error = PQerrorMessage( get_pgconn( obj));
-    return error != NULL ? rb_tainted_str_new2( error) : Qnil;
-}
-
-/*
- * call-seq:
  *    conn.trace( port )
  *
  * Enables tracing message passing between backend.
@@ -723,38 +665,6 @@ pgconn_transaction_status( obj)
     VALUE obj;
 {
     return INT2NUM( PQtransactionStatus( get_pgconn( obj)));
-}
-
-/*
- * call-seq:
- *  conn.protocol_version -> Integer
- *
- * The 3.0 protocol will normally be used when communicating with PostgreSQL
- * 7.4 or later servers; pre-7.4 servers support only protocol 2.0. (Protocol
- * 1.0 is obsolete and not supported by libpq.)
- */
-VALUE
-pgconn_protocol_version( obj)
-    VALUE obj;
-{
-    return INT2NUM( PQprotocolVersion( get_pgconn( obj)));
-}
-
-/*
- * call-seq:
- *   conn.server_version -> Integer
- *
- * The number is formed by converting the major, minor, and revision numbers
- * into two-decimal-digit numbers and appending them together. For example,
- * version 7.4.2 will be returned as 70402, and version 8.1 will be returned
- * as 80100 (leading zeroes are not shown). Zero is returned if the connection
- * is bad.
- */
-VALUE
-pgconn_server_version( obj)
-    VALUE obj;
-{
-    return INT2NUM( PQserverVersion( get_pgconn( obj)));
 }
 
 /*
