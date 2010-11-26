@@ -40,6 +40,8 @@ static VALUE pgconn_error( VALUE obj);
 static VALUE pgconn_trace( VALUE obj, VALUE port);
 static VALUE pgconn_untrace( VALUE obj);
 
+static VALUE pgconn_client_encoding( VALUE obj);
+static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
 static VALUE pgconn_loexport( VALUE obj, VALUE lo_oid, VALUE filename);
@@ -128,7 +130,8 @@ build_key_value_string_i( key, value, result)
     VALUE key, value, result;
 {
     VALUE key_value;
-    if (key == Qundef) return ST_CONTINUE;
+    if (key == Qundef)
+        return ST_CONTINUE;
 #if 0
     key_value = rb_obj_class( key) == rb_cString ?
         rb_str_dup( key) : rb_funcall( key, rb_intern( "to_s"), 0);
@@ -651,6 +654,37 @@ pgconn_untrace( obj)
 }
 
 
+
+/*
+ * call-seq:
+ *    conn.client_encoding() -> String
+ *
+ * Returns the client encoding as a String.
+ */
+VALUE
+pgconn_client_encoding( obj)
+    VALUE obj;
+{
+    char *encoding = (char *) pg_encoding_to_char(
+                                PQclientEncoding( get_pgconn( obj)));
+    return rb_tainted_str_new2( encoding);
+}
+
+/*
+ * call-seq:
+ *    conn.set_client_encoding( encoding )
+ *
+ * Sets the client encoding to the _encoding_ String.
+ */
+VALUE
+pgconn_set_client_encoding( obj, str)
+    VALUE obj, str;
+{
+    Check_Type( str, T_STRING);
+    if ((PQsetClientEncoding( get_pgconn( obj), STR2CSTR( str))) == -1)
+        rb_raise( rb_ePGError, "invalid encoding name %s", str);
+    return Qnil;
+}
 
 
 

@@ -35,8 +35,6 @@ extern VALUE pgconn_endcopy( VALUE obj);
 extern VALUE pgconn_on_notice( VALUE self);
 extern VALUE pgconn_transaction_status( VALUE obj);
 extern VALUE pgconn_quote( VALUE obj, VALUE value);
-extern VALUE pgconn_client_encoding( VALUE obj);
-extern VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
 /*----------------------------------------------------------------*/
 
 extern void init_pg_conn( void);

@@ -642,46 +642,13 @@ pgconn_quote( obj, value)
 }
 
 
-/*
- * call-seq:
- *    conn.client_encoding() -> String
- *
- * Returns the client encoding as a String.
- */
-VALUE
-pgconn_client_encoding( obj)
-    VALUE obj;
-{
-    char *encoding = (char *) pg_encoding_to_char(
-                                PQclientEncoding( get_pgconn( obj)));
-    return rb_tainted_str_new2( encoding);
-}
-
-/*
- * call-seq:
- *    conn.set_client_encoding( encoding )
- *
- * Sets the client encoding to the _encoding_ String.
- */
-VALUE
-pgconn_set_client_encoding( obj, str)
-    VALUE obj, str;
-{
-    Check_Type( str, T_STRING);
-    if ((PQsetClientEncoding( get_pgconn( obj), STR2CSTR( str))) == -1) {
-        rb_raise( rb_ePGError, "invalid encoding name %s", str);
-    }
-    return Qnil;
-}
-
-#define SCALE_MASK 0xffff
-
 int
 has_numeric_scale( typmod)
     int typmod;
 {
-    if (typmod == -1) return 1;
-    return (typmod - VARHDRSZ) & SCALE_MASK;
+    if (typmod == -1)
+        return 1;
+    return (typmod - VARHDRSZ) & 0xffff;
 }
 
 #define PARSE( klass, string) \
@@ -711,10 +678,9 @@ fetch_pgresult( result, row, column)
         return pgconn_s_unescape_bytea( rb_cPGConn, rb_tainted_str_new2( string));
 
     case NUMERICOID:
-        if (has_numeric_scale( PQfmod( result, column))) {
-            return rb_funcall( rb_cBigDecimal, id_new,
-                        1, rb_tainted_str_new2( string));
-        }
+        if (has_numeric_scale( PQfmod( result, column)))
+            return rb_funcall( rb_cBigDecimal, id_new, 1,
+                                    rb_tainted_str_new2( string));
         /* when scale == 0 return inum */
 
     case INT8OID:
