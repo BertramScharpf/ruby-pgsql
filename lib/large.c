@@ -34,7 +34,7 @@ static VALUE pglarge_tell( VALUE obj);
 static VALUE pglarge_size( VALUE obj);
 
 
-VALUE rb_cPGLarge;
+VALUE rb_cPgLarge;
 
 
 
@@ -59,7 +59,7 @@ loopen_int( conn, lo_oid, mode)
 
     fd = lo_open( conn, lo_oid, mode);
     if (fd < 0)
-        rb_raise( rb_ePGError, "can't open large object");
+        rb_raise( rb_ePgError, "can't open large object");
     lob = pglarge_new( conn, lo_oid, fd);
     return rb_block_given_p() ? 
         rb_ensure( rb_yield, lob, pglarge_close, lob) : lob;
@@ -82,7 +82,7 @@ large_tell( pglarge)
 
     pos = lo_tell( pglarge->pgconn, pglarge->lo_fd);
     if (pos == -1)
-        rb_raise( rb_ePGError, "error while getting position");
+        rb_raise( rb_ePgError, "error while getting position");
     return pos;
 }
 
@@ -95,7 +95,7 @@ large_lseek( pglarge, offset, whence)
 
     ret = lo_lseek( pglarge->pgconn, pglarge->lo_fd, offset, whence);
     if (ret == -1)
-        rb_raise( rb_ePGError, "error while moving cursor");
+        rb_raise( rb_ePgError, "error while moving cursor");
     return ret;
 }
 
@@ -131,7 +131,7 @@ pglarge_new( conn, lo_oid, lo_fd)
     VALUE obj;
     PGlarge *pglarge;
 
-    obj = Data_Make_Struct( rb_cPGLarge, PGlarge, 0, free_pglarge, pglarge);
+    obj = Data_Make_Struct( rb_cPgLarge, PGlarge, 0, free_pglarge, pglarge);
     pglarge->pgconn = conn;
     pglarge->lo_oid = lo_oid;
     pglarge->lo_fd = lo_fd;
@@ -147,10 +147,10 @@ locreate_pgconn( conn, nmode)
     int mode;
     Oid lo_oid;
 
-    mode = NIL_P(nmode) ? INV_WRITE : FIX2INT( nmode);
+    mode = NIL_P( nmode) ? INV_WRITE : FIX2INT( nmode);
     lo_oid = lo_creat( conn, mode);
     if (lo_oid == 0)
-        rb_raise( rb_ePGError, "can't creat large object");
+        rb_raise( rb_ePgError, "can't creat large object");
     return loopen_int( conn, lo_oid, mode);
 }
 
@@ -204,7 +204,7 @@ pglarge_close( obj)
         ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
         if (ret < 0 &&
                 PQtransactionStatus( pglarge->pgconn) != PQTRANS_INERROR) {
-            rb_raise( rb_ePGError, "cannot close large object");
+            rb_raise( rb_ePgError, "cannot close large object");
         }
         DATA_PTR( obj) = NULL;
     }
@@ -236,12 +236,12 @@ pglarge_read( argc, argv, obj)
 
     len = NUM2INT( length);
     if (len < 0)
-        rb_raise( rb_ePGError, "negative length %d given", len);
+        rb_raise( rb_ePgError, "negative length %d given", len);
 
     str = rb_tainted_str_new( 0, len);
-    len = lo_read( pglarge->pgconn, pglarge->lo_fd, STR2CSTR( str), len);
+    len = lo_read( pglarge->pgconn, pglarge->lo_fd, RSTRING_PTR( str), len);
     if (len < 0)
-        rb_raise( rb_ePGError, "error while reading");
+        rb_raise( rb_ePgError, "error while reading");
     if (len == 0)
         return Qnil;
     else {
@@ -307,13 +307,13 @@ pglarge_write( obj, buffer)
     Check_Type( buffer, T_STRING);
 
     if (RSTRING( buffer)->len < 0)
-        rb_raise( rb_ePGError, "write buffer zero string");
+        rb_raise( rb_ePgError, "write buffer zero string");
 
     pglarge = get_pglarge( obj);
     n = lo_write( pglarge->pgconn, pglarge->lo_fd,
-                  STR2CSTR( buffer), RSTRING( buffer)->len);
+                  RSTRING_PTR( buffer), RSTRING( buffer)->len);
     if (n == -1)
-        rb_raise( rb_ePGError, "buffer truncated during write");
+        rb_raise( rb_ePgError, "buffer truncated during write");
 
     return INT2FIX( n);
 }
@@ -379,17 +379,17 @@ pglarge_size( obj)
 
 void init_pg_large( void)
 {
-    rb_cPGLarge = rb_define_class_under( rb_mPg, "Large", rb_cObject);
-    rb_define_method( rb_cPGLarge, "oid", pglarge_oid, 0);
-    rb_define_method( rb_cPGLarge, "close", pglarge_close, 0);
-    rb_define_method( rb_cPGLarge, "read", pglarge_read, -1);
-    rb_define_method( rb_cPGLarge, "each_line", pglarge_each_line, 0);
-    rb_define_method( rb_cPGLarge, "write", pglarge_write, 1);
-    rb_define_method( rb_cPGLarge, "seek", pglarge_seek, 2);
-    rb_define_method( rb_cPGLarge, "tell", pglarge_tell, 0);
-    rb_define_method( rb_cPGLarge, "size", pglarge_size, 0);
+    rb_cPgLarge = rb_define_class_under( rb_mPg, "Large", rb_cObject);
+    rb_define_method( rb_cPgLarge, "oid", pglarge_oid, 0);
+    rb_define_method( rb_cPgLarge, "close", pglarge_close, 0);
+    rb_define_method( rb_cPgLarge, "read", pglarge_read, -1);
+    rb_define_method( rb_cPgLarge, "each_line", pglarge_each_line, 0);
+    rb_define_method( rb_cPgLarge, "write", pglarge_write, 1);
+    rb_define_method( rb_cPgLarge, "seek", pglarge_seek, 2);
+    rb_define_method( rb_cPgLarge, "tell", pglarge_tell, 0);
+    rb_define_method( rb_cPgLarge, "size", pglarge_size, 0);
 
-#define LRGC_DEF( c) rb_define_const( rb_cPGLarge, #c, INT2FIX( c))
+#define LRGC_DEF( c) rb_define_const( rb_cPgLarge, #c, INT2FIX( c))
     LRGC_DEF( INV_WRITE);
     LRGC_DEF( INV_READ);
     LRGC_DEF( SEEK_SET);

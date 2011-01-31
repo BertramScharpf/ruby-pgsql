@@ -7,10 +7,8 @@
 
 #include "module.h"
 
-#include <libpq-fe.h>
 
-
-extern VALUE rb_cPGLarge;
+extern VALUE rb_cPgLarge;
 
 
 extern VALUE locreate_pgconn( PGconn *conn, VALUE nmode);

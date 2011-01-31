@@ -5,6 +5,8 @@
 
 #include "row.h"
 
+#include "pgsql.h"
+
 
 static ID id_keys;
 
@@ -20,7 +22,27 @@ static VALUE pgrow_to_hash( VALUE self);
 
 
 
-VALUE rb_cPGRow;
+VALUE rb_cPgRow;
+
+
+
+VALUE
+fetch_pgrow( result, row_num)
+    PGresult *result;
+    int row_num;
+{
+    VALUE row;
+    VALUE fields;
+    int i;
+
+    fields = fetch_fields( result);
+    row = rb_funcall( rb_cPgRow, id_new, 1, fields);
+    for (i = 0; i < RARRAY( fields)->len; i++) {
+        /* don't use push, Pg::Row is sized with nils in #new */
+        rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
+    }
+    return row;
+}
 
 
 
@@ -53,8 +75,8 @@ pgrow_aref( argc, argv, self)
         VALUE keys = pgrow_keys( self);
         VALUE index = rb_funcall( keys, rb_intern( "index"), 1, argv[0]);
         if (index == Qnil) {
-            rb_raise( rb_ePGError, "%s: field not found",
-                            STR2CSTR( argv[0]));
+            rb_raise( rb_ePgError, "%s: field not found",
+                            RSTRING_PTR( argv[0]));
         }
         else {
             return rb_ary_entry( self, NUM2INT( index));
@@ -191,16 +213,16 @@ pgrow_to_hash( self)
 
 void init_pg_row( void)
 {
-    rb_cPGRow = rb_define_class_under( rb_mPg, "Row", rb_cArray);
-    rb_define_method( rb_cPGRow, "initialize", pgrow_init, 1);
-    rb_define_method( rb_cPGRow, "[]", pgrow_aref, -1);
-    rb_define_method( rb_cPGRow, "keys", pgrow_keys, 0);
-    rb_define_method( rb_cPGRow, "values", pgrow_values, 0);
-    rb_define_method( rb_cPGRow, "each", pgrow_each, 0);
-    rb_define_method( rb_cPGRow, "each_pair", pgrow_each_pair, 0);
-    rb_define_method( rb_cPGRow, "each_key", pgrow_each_key, 0);
-    rb_define_method( rb_cPGRow, "each_value", pgrow_each_value, 0);
-    rb_define_method( rb_cPGRow, "to_hash", pgrow_to_hash, 0);
+    rb_cPgRow = rb_define_class_under( rb_mPg, "Row", rb_cArray);
+    rb_define_method( rb_cPgRow, "initialize", pgrow_init, 1);
+    rb_define_method( rb_cPgRow, "[]", pgrow_aref, -1);
+    rb_define_method( rb_cPgRow, "keys", pgrow_keys, 0);
+    rb_define_method( rb_cPgRow, "values", pgrow_values, 0);
+    rb_define_method( rb_cPgRow, "each", pgrow_each, 0);
+    rb_define_method( rb_cPgRow, "each_pair", pgrow_each_pair, 0);
+    rb_define_method( rb_cPgRow, "each_key", pgrow_each_key, 0);
+    rb_define_method( rb_cPgRow, "each_value", pgrow_each_value, 0);
+    rb_define_method( rb_cPgRow, "to_hash", pgrow_to_hash, 0);
 
     id_keys = rb_intern( "@keys");
 }

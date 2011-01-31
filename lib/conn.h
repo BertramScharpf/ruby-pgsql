@@ -8,21 +8,21 @@
 #include "module.h"
 
 
-extern VALUE rb_cPGConn;
+extern VALUE rb_cPgConn;
 
 extern int translate_results;
 
 /*----------------------------------------------------------------*/
 extern PGconn *get_pgconn( VALUE obj);
 /*----------------------------------------------------------------*/
+extern PGresult *pg_pqexec( PGconn *conn, const char *cmd);
+
 
 /*----------------------------------------------------------------*/
-extern VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
 extern VALUE pgconn_query( int argc, VALUE *argv, VALUE obj);
 extern VALUE pgconn_select_one( int argc, VALUE *argv, VALUE self);
 extern VALUE pgconn_select_value( int argc, VALUE *argv, VALUE self);
 extern VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
-extern VALUE pgconn_async_exec( VALUE obj, VALUE str);
 extern VALUE pgconn_async_query( VALUE obj, VALUE str);
 
 extern VALUE pgconn_get_notify( VALUE obj);
@@ -34,7 +34,6 @@ extern VALUE pgconn_getline( VALUE obj);
 extern VALUE pgconn_endcopy( VALUE obj);
 extern VALUE pgconn_on_notice( VALUE self);
 extern VALUE pgconn_transaction_status( VALUE obj);
-extern VALUE pgconn_quote( VALUE obj, VALUE value);
 /*----------------------------------------------------------------*/
 
 extern void init_pg_conn( void);

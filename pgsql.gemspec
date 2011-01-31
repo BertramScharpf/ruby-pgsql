@@ -30,15 +30,13 @@ EOT
   s.requirements      = "PostgreSQL"
   s.has_rdoc          = true
   s.extensions        = "lib/mkrf_conf"
+  s.executables       = %w(
+                          pgbackup
+                        )
   s.files             = %w(
-                          bin/pgbackup
                           lib/Rakefile
                           lib/mkrf_conf
                           lib/undef.h
-                          lib/pgsql.c
-                          lib/pgsql.h
-                          lib/conn.c
-                          lib/conn.h
                           lib/result.c
                           lib/result.h
                           lib/row.c
@@ -47,6 +45,10 @@ EOT
                           lib/large.h
                           lib/module.c
                           lib/module.h
+                          lib/pgsql.c
+                          lib/pgsql.h
+                          lib/conn.c
+                          lib/conn.h
                         )
 end
 

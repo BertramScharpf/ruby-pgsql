@@ -9,21 +9,22 @@
 #include <rubyio.h>
 #include "undef.h"
 
+#include <postgres.h>
 #include <libpq-fe.h>
+#include <catalog/pg_type.h>
+#include "undef.h"
 
 
-#define VERSION "1.2"
+#define VERSION "1.3"
 
 
 extern VALUE rb_mPg;
-extern VALUE rb_ePGError;
-extern VALUE rb_ePGExecError;
-extern VALUE rb_ePGConnError;
-
+extern VALUE rb_ePgError;
+extern VALUE rb_ePgExecError;
+extern VALUE rb_ePgConnError;
 
 extern void pg_raise_exec( PGconn *conn);
 extern void pg_raise_conn( PGconn *conn);
-
 
 extern void init_pg_module( void);
 

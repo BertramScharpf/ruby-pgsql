@@ -13,24 +13,18 @@
 #include <intern.h>
 
 
-static VALUE rb_cBigDecimal;
-static VALUE rb_cDate;      /* TODO: eliminiere doppeltes Vorkommen. */
-static VALUE rb_cDateTime;  /* TODO: eliminiere doppeltes Vorkommen. */
+ID id_new;
 
-static ID id_new;
+VALUE rb_cBigDecimal;
+VALUE rb_cDate;
+VALUE rb_cDateTime;
+
 static ID id_on_notice;
 static ID id_gsub;
 static ID id_gsub_bang;
 
 static VALUE pg_escape_regex;
 static VALUE pg_escape_str;
-
-
-
-static VALUE format_single_element( VALUE obj);
-static VALUE pgconn_s_format( VALUE self, VALUE obj);
-static VALUE format_array_element( VALUE obj);
-static VALUE yield_or_return_result( VALUE res);
 
 
 static VALUE rescue_transaction( VALUE obj);
@@ -42,201 +36,9 @@ static void notice_proxy( void *self, const char *message);
 
 static VALUE pgconn_lastval( VALUE obj);
 
-static int has_numeric_scale( int typmod);
 
 
 
-
-static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
-
-
-
-PGresult *pg_pqexec( PGconn *conn, const char *cmd)
-{
-    PGresult *result;
-
-    result = PQexec( conn, cmd);
-    pg_checkresult( conn, result);
-    return result;
-}
-
-
-VALUE
-format_single_element( obj)
-    VALUE obj;
-{
-    VALUE result;
-    int tainted;
-    long i;
-
-    switch (TYPE( obj)) {
-    case T_STRING:
-        return obj;
-
-    case T_TRUE:
-    case T_FALSE:
-    case T_FIXNUM:
-    case T_BIGNUM:
-    case T_FLOAT:
-        return rb_obj_as_string( obj);
-
-    case T_NIL:
-        return rb_str_new2( "NULL");
-
-    case T_ARRAY:
-        result = rb_str_buf_new2( "'{");
-        tainted = OBJ_TAINTED( obj);
-        for (i = 0; i < RARRAY( obj)->len; i++) {
-            VALUE element = format_array_element( RARRAY( obj)->ptr[i]);
-            if (OBJ_TAINTED( RARRAY( obj)->ptr[i])) tainted = Qtrue;
-            if (i > 0) rb_str_buf_cat2( result, ",");
-            rb_str_buf_append( result, element);
-        }
-        rb_str_buf_cat2( result, "}'");
-        if (tainted) OBJ_TAINT( result);
-        return result;
-
-    default:
-        if (CLASS_OF( obj) == rb_cBigDecimal) {
-            return rb_funcall( obj, rb_intern( "to_s"), 1, rb_str_new2( "F"));
-        } else {
-            return Qundef;
-        }
-    }
-}
-
-VALUE
-pgconn_s_format( self, obj)
-    VALUE self;
-    VALUE obj;
-{
-    VALUE result;
-
-    result = format_single_element( obj);
-    if (result == Qundef) {
-        result = rb_obj_as_string( obj);
-    }
-    return result;
-}
-
-VALUE
-format_array_element( obj)
-    VALUE obj;
-{
-    if (TYPE( obj) == T_STRING) {
-        obj = rb_funcall( obj, id_gsub,
-                    2, rb_reg_new( "(?=[\\\\\"])", 9, 0), rb_str_new2( "\\"));
-        return rb_funcall( obj, id_gsub_bang,
-                    2, rb_reg_new( "^|$", 3, 0), rb_str_new2( "\""));
-    }
-    else {
-        return pgconn_s_format( rb_cPGConn, obj);
-    }
-}
-
-VALUE
-yield_or_return_result( result)
-    VALUE result;
-{
-    return RTEST( rb_block_given_p()) ?
-        rb_ensure( rb_yield, result, pgresult_clear, result) : result;
-}
-
-
-/*
- * call-seq:
- *    conn.exec( sql, *bind_values)
- *
- * Sends SQL query request specified by _sql_ to the PostgreSQL.
- * Returns a Pg::Result instance on success.
- * On failure, it raises a Pg::Error exception.
- *
- * +bind_values+ represents values for the PostgreSQL bind parameters found in
- * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
- */
-VALUE
-pgconn_exec( argc, argv, obj)
-    int argc;
-    VALUE *argv;
-    VALUE obj;
-{
-    PGconn *conn = get_pgconn( obj);
-    PGresult *result = NULL;
-    VALUE command, params;
-
-    rb_scan_args( argc, argv, "1*", &command, &params);
-
-    Check_Type( command, T_STRING);
-
-    if (RARRAY( params)->len <= 0) {
-        result = pg_pqexec( conn, STR2CSTR( command));
-    } else {
-        int len = RARRAY( params)->len;
-        int i;
-        VALUE* ptr = RARRAY( params)->ptr;
-        const char **values = ALLOCA_N( const char *, len);
-        VALUE formatted;
-        for (i = 0; i < len; i++, ptr++) {
-            if (*ptr == Qnil) {
-                values[i] = NULL;
-            }
-            else {
-                formatted = pgconn_s_format( rb_cPGConn, *ptr);
-                values[i] = STR2CSTR( formatted);
-            }
-        }
-        result = PQexecParams( conn, STR2CSTR( command), len,
-                                NULL, values, NULL, NULL, 0);
-        pg_checkresult( conn, result);
-    }
-
-    return yield_or_return_result( pgresult_new( conn, result));
-}
-
-/*
- * call-seq:
- *    conn.async_exec( sql )
- *
- * Sends an asyncrhonous SQL query request specified by _sql_ to the
- * PostgreSQL server.
- * Returns a Pg::Result instance on success.
- * On failure, it raises a Pg::Error exception.
- */
-VALUE
-pgconn_async_exec( obj, str)
-    VALUE obj, str;
-{
-    PGconn *conn = get_pgconn( obj);
-    PGresult *result;
-    int cs;
-    int ret;
-    fd_set rset;
-
-    Check_Type( str, T_STRING);
-
-    while ((result = PQgetResult( conn)))
-        PQclear( result);
-    if (!PQsendQuery( conn, RSTRING( str)->ptr))
-        pg_raise_exec( conn);
-    cs = PQsocket( conn);
-    for(;;) {
-        FD_ZERO(&rset);
-        FD_SET( cs, &rset);
-        ret = rb_thread_select( cs + 1, &rset, NULL, NULL, NULL);
-        if (ret < 0)
-            rb_sys_fail( 0);
-        if (ret == 0)
-            continue;
-        if (PQconsumeInput( conn) == 0)
-            pg_raise_exec( conn);
-        if (PQisBusy( conn) == 0)
-            break;
-    }
-
-    result = PQgetResult( conn);
-    pg_checkresult( conn, result);
-    return yield_or_return_result( pgresult_new( conn, result));
-}
 
 /*
  * call-seq:
@@ -335,7 +137,7 @@ pgconn_insert_table( obj, table, values)
     i = RARRAY( values)->len;
     while (i--) {
         if (TYPE( RARRAY( RARRAY( values)->ptr[i])) != T_ARRAY) {
-            rb_raise( rb_ePGError,
+            rb_raise( rb_ePgError,
                      "second arg must contain some kind of arrays.");
         }
     }
@@ -343,9 +145,9 @@ pgconn_insert_table( obj, table, values)
     buffer = rb_str_new( 0, RSTRING( table)->len + 17 + 1);
     /* starts query */
     snprintf( RSTRING( buffer)->ptr, RSTRING( buffer)->len,
-                "copy %s from stdin ", STR2CSTR( table));
+                "copy %s from stdin ", RSTRING_PTR( table));
 
-    result = pg_pqexec( conn, STR2CSTR( buffer));
+    result = pg_pqexec( conn, RSTRING_PTR( buffer));
     PQclear( result);
 
     for (i = 0; i < RARRAY( values)->len; i++) {
@@ -358,12 +160,12 @@ pgconn_insert_table( obj, table, values)
             } else {
                 s = rb_obj_as_string( row->ptr[j]);
                 rb_funcall( s, id_gsub_bang, 2, pg_escape_regex, pg_escape_str);
-                rb_str_cat( buffer, STR2CSTR( s), RSTRING( s)->len);
+                rb_str_cat( buffer, RSTRING_PTR( s), RSTRING( s)->len);
             }
         }
         rb_str_cat( buffer, "\n\0", 2);
         /* sends data */
-        PQputline( conn, STR2CSTR( buffer));
+        PQputline( conn, RSTRING_PTR( buffer));
     }
     PQputline( conn, "\\.\n");
     res = PQendcopy( conn);
@@ -397,7 +199,7 @@ yield_transaction( obj)
  * call-seq:
  *    conn.transaction( ser = nil, ro = nil) { |conn| ... }
  *
- * Open and close a transaction block. The isolation level will be
+ * Open and close a transaction block.  The isolation level will be
  * 'serializable' if +ser+ is true, else 'repeatable read'.
  * +ro+ means 'read only'.
  *
@@ -417,18 +219,18 @@ pgconn_transaction( argc, argv, self)
     rb_scan_args( argc, argv, "02", &ser, &ro);
     cmd = rb_str_buf_new2( "begin");
     p = 0;
-    if (!NIL_P(ser)) {
+    if (!NIL_P( ser)) {
         rb_str_buf_cat2( cmd, " isolation level ");
         rb_str_buf_cat2( cmd, (RTEST(ser) ? "serializable" : "read committed"));
         p++;
     }
-    if (!NIL_P(ro)) {
+    if (!NIL_P( ro)) {
         if (p) rb_str_buf_cat2( cmd, ",");
         rb_str_buf_cat2( cmd, " read ");
         rb_str_buf_cat2( cmd, (RTEST(ro)  ? "only" : "write"));
     }
     rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( self), STR2CSTR(cmd));
+    pg_pqexec( get_pgconn( self), RSTRING_PTR(cmd));
     return rb_rescue( yield_transaction, self, rescue_transaction, self);
 }
 
@@ -444,7 +246,7 @@ rescue_subtransaction( ary)
     cmd = rb_str_buf_new2( "rollback to savepoint ");
     rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
     rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), STR2CSTR(cmd));
+    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), RSTRING_PTR(cmd));
 
     rb_exc_raise( ruby_errinfo);
     return Qnil;
@@ -461,7 +263,7 @@ yield_subtransaction( ary)
     cmd = rb_str_buf_new2( "release savepoint ");
     rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
     rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), STR2CSTR(cmd));
+    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), RSTRING_PTR(cmd));
 
     return r;
 }
@@ -470,7 +272,7 @@ yield_subtransaction( ary)
  * call-seq:
  *    conn.subtransaction( nam, *args) { |conn,sp| ... }
  *
- * Open and close a transaction savepoint. The savepoints name +nam+ may
+ * Open and close a transaction savepoint.  The savepoints name +nam+ may
  * contain % directives that will be expanded by +args+.
  */
 VALUE
@@ -488,7 +290,7 @@ pgconn_subtransaction( argc, argv, self)
     cmd = rb_str_buf_new2( "savepoint ");
     rb_str_buf_append( cmd, sp);
     rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( self), STR2CSTR(cmd));
+    pg_pqexec( get_pgconn( self), RSTRING_PTR(cmd));
 
     ya = rb_ary_new3( 2, self, sp);
     return rb_rescue( yield_subtransaction, ya, rescue_subtransaction, ya);
@@ -508,7 +310,7 @@ pgconn_putline( obj, str)
     VALUE obj, str;
 {
     Check_Type( str, T_STRING);
-    PQputline( get_pgconn( obj), STR2CSTR( str));
+    PQputline( get_pgconn( obj), RSTRING_PTR( str));
     return obj;
 }
 
@@ -541,7 +343,7 @@ pgconn_getline( obj)
         case EOF:
             return Qnil;
         case 0:
-            rb_str_resize( str, strlen( STR2CSTR( str)));
+            rb_str_resize( str, strlen( RSTRING_PTR( str)));
             return str;
         }
         bytes += BUFSIZ;
@@ -564,7 +366,7 @@ pgconn_endcopy( obj)
     VALUE obj;
 {
     if (PQendcopy( get_pgconn( obj)) == 1) {
-        rb_raise( rb_ePGError, "cannot complete copying");
+        rb_raise( rb_ePgError, "cannot complete copying");
     }
     return Qnil;
 }
@@ -586,8 +388,8 @@ notice_proxy( self, message)
  *
  * Notice and warning messages generated by the server are not returned
  * by the query execution functions, since they do not imply failure of
- * the query. Instead they are passed to a notice handling function, and
- * execution continues normally after the handler returns. The default
+ * the query.  Instead they are passed to a notice handling function, and
+ * execution continues normally after the handler returns.  The default
  * notice handling function prints the message on <tt>stderr</tt>, but the
  * application can override this behavior by supplying its own handling
  * function.
@@ -627,104 +429,7 @@ pgconn_transaction_status( obj)
     return INT2NUM( PQtransactionStatus( get_pgconn( obj)));
 }
 
-/*
- * call-seq:
- *    conn.quote( obj)
- *    conn.quote( obj) { |obj| ... }
- *
- * A shortcut for +Pg::Conn.quote+. See there for further explanation.
- */
-VALUE
-pgconn_quote( obj, value)
-    VALUE obj, value;
-{
-    return pgconn_s_quote( rb_cPGConn, value);
-}
 
-
-int
-has_numeric_scale( typmod)
-    int typmod;
-{
-    if (typmod == -1)
-        return 1;
-    return (typmod - VARHDRSZ) & 0xffff;
-}
-
-#define PARSE( klass, string) \
-    rb_funcall( klass, rb_intern( "parse"), 1, rb_tainted_str_new2( string));
-
-VALUE
-fetch_pgresult( result, row, column)
-    PGresult *result;
-    int row;
-    int column;
-{
-    char* string;
-
-    if (PQgetisnull( result, row, column))
-        return Qnil;
-
-    string = PQgetvalue( result, row, column);
-
-    if (!translate_results)
-        return rb_tainted_str_new2( string);
-
-    switch (PQftype( result, column)) {
-    case BOOLOID:
-        return *string == 't' ? Qtrue : Qfalse;
-
-    case BYTEAOID:
-        return pgconn_s_unescape_bytea( rb_cPGConn, rb_tainted_str_new2( string));
-
-    case NUMERICOID:
-        if (has_numeric_scale( PQfmod( result, column)))
-            return rb_funcall( rb_cBigDecimal, id_new, 1,
-                                    rb_tainted_str_new2( string));
-        /* when scale == 0 return inum */
-
-    case INT8OID:
-    case INT4OID:
-    case INT2OID:
-    case OIDOID:
-        return rb_cstr2inum( string, 10);
-
-    case FLOAT8OID:
-    case FLOAT4OID:
-        return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
-
-    case DATEOID:
-        return PARSE( rb_cDate, string);
-    case TIMEOID:
-    case TIMETZOID:
-        return PARSE( rb_cTime, string);
-    case TIMESTAMPOID:
-    case TIMESTAMPTZOID:
-        return PARSE( rb_cDateTime, string);
-
-    default:
-        return rb_tainted_str_new2( string);
-    }
-}
-
-
-VALUE
-fetch_pgrow( result, row_num)
-    PGresult *result;
-    int row_num;
-{
-    VALUE row;
-    VALUE fields;
-    int i;
-
-    fields = fetch_fields( result);
-    row = rb_funcall( rb_cPGRow, id_new, 1, fields);
-    for (i = 0; i < RARRAY( fields)->len; i++) {
-        /* don't use push, Pg::Row is sized with nils in #new */
-        rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
-    }
-    return row;
-}
 
 /*
  * call-seq:
@@ -742,7 +447,6 @@ pgconn_select_one( argc, argv, self)
     VALUE res;
     VALUE row;
     PGresult *result;
-
 
     res = rb_funcall2( self, rb_intern( "exec"), argc, argv);
     result = get_pgresult( res);
@@ -816,6 +520,11 @@ Init_pgsql( void)
 {
     rb_require( "bigdecimal");
     rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
+
+    rb_require( "date");
+    rb_require( "time");
+    rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
+    rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
 
     init_pg_module();
     init_pg_large();

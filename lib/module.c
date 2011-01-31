@@ -7,20 +7,20 @@
 
 
 VALUE rb_mPg;
-VALUE rb_ePGError;
+VALUE rb_ePgError;
 
-VALUE rb_ePGExecError;
-VALUE rb_ePGConnError;
+VALUE rb_ePgExecError;
+VALUE rb_ePgConnError;
 
 
 void pg_raise_exec( PGconn *conn)
 {
-    rb_raise( rb_ePGExecError, PQerrorMessage( conn));
+    rb_raise( rb_ePgExecError, PQerrorMessage( conn));
 }
 
 void pg_raise_conn( PGconn *conn)
 {
-    rb_raise( rb_ePGConnError, PQerrorMessage( conn));
+    rb_raise( rb_ePgConnError, PQerrorMessage( conn));
 }
 
 /* PostgreSQL API for Ruby */
@@ -40,9 +40,9 @@ void init_pg_module( void)
 
     rb_define_const( rb_mPg, "VERSION", rb_obj_freeze( rb_str_new2( VERSION)));
 
-    rb_ePGError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
+    rb_ePgError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
 
-    rb_ePGExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePGError);
-    rb_ePGConnError = rb_define_class_under( rb_mPg, "ConnError", rb_ePGError);
+    rb_ePgExecError = rb_define_class_under( rb_mPg, "ExecError", rb_ePgError);
+    rb_ePgConnError = rb_define_class_under( rb_mPg, "ConnError", rb_ePgError);
 }
 

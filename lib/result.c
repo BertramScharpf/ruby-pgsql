@@ -8,6 +8,13 @@
 #include <st.h>
 #include <intern.h>
 
+#include "row.h"
+#include "conn.h"
+#include "pgsql.h"
+
+
+static ID id_parse;
+
 
 static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
@@ -20,6 +27,7 @@ static VALUE pgreserror_primary( VALUE self);
 static VALUE pgreserror_detail( VALUE self);
 static VALUE pgreserror_hint( VALUE self);
 
+static VALUE pgresult_alloc( VALUE klass);
 static VALUE pgresult_status( VALUE obj);
 static VALUE pgresult_aref( int argc, VALUE *argv, VALUE obj);
 static VALUE pgresult_each( VALUE self);
@@ -40,8 +48,8 @@ static VALUE pgresult_cmdstatus( VALUE obj);
 static VALUE pgresult_oid( VALUE obj);
 
 
-VALUE rb_ePGResError;
-VALUE rb_cPGResult;
+VALUE rb_ePgResError;
+VALUE rb_cPgResult;
 
 
 void
@@ -63,7 +71,7 @@ pg_checkresult( PGconn *conn, PGresult *result)
             break;
         default:
             PQclear( result);
-            rb_raise( rb_ePGError, "internal error: unknown result status.");
+            rb_raise( rb_ePgError, "internal error: unknown result status.");
             break;
     }
 }
@@ -91,7 +99,7 @@ get_pgresult( obj)
 
     Data_Get_Struct( obj, PGresult, result);
     if (result == NULL)
-        rb_raise( rb_ePGError, "query not performed");
+        rb_raise( rb_ePgError, "query not performed");
     return result;
 }
 
@@ -140,11 +148,13 @@ VALUE
 pgreserror_new( result)
     PGresult *result;
 {
-    VALUE res, argv[ 1];
-    res = Data_Wrap_Struct( rb_ePGResError, 0, &PQclear, result);
-    argv[ 0] = rb_str_new2( PQresultErrorMessage( result));
-    rb_obj_call_init( res, 1, argv);
-    return res;
+    VALUE rse, msg;
+
+    rse = pgresult_alloc( rb_ePgResError);
+    DATA_PTR( rse) = result;
+    msg = rb_str_new2( PQresultErrorMessage( result));
+    rb_obj_call_init( rse, 1, &msg);
+    return rse;
 }
 
 
@@ -233,6 +243,13 @@ pgreserror_hint( self)
 }
 
 
+VALUE
+pgresult_alloc( klass)
+    VALUE klass;
+{
+    return Data_Wrap_Struct( klass, 0, &PQclear, NULL);
+}
+
 
 VALUE
 pgresult_new( conn, result)
@@ -241,7 +258,8 @@ pgresult_new( conn, result)
 {
     VALUE res;
 
-    res = Data_Wrap_Struct( rb_cPGResult, 0, &PQclear, result);
+    res = pgresult_alloc( rb_cPgResult);
+    DATA_PTR( res) = result;
     rb_obj_call_init( res, 0, NULL);
     return res;
 }
@@ -250,7 +268,7 @@ pgresult_new( conn, result)
  * call-seq:
  *    res.status()  -> int
  *
- * Returns the status of the query. The status value is one of:
+ * Returns the status of the query.  The status value is one of:
  *     * +EMPTY_QUERY+
  *     * +COMMAND_OK+
  *     * +TUPLES_OK+
@@ -269,7 +287,7 @@ pgresult_status( obj)
  *    res[ n]     -> ary
  *    res[ n, m]  -> obj
  *
- * Returns the tuple (row) corresponding to _n_. Returns +nil+ if <code>_n_ >=
+ * Returns the tuple (row) corresponding to _n_.  Returns +nil+ if <code>_n_ >=
  * res.num_tuples</code>.
  *
  * Equivalent to <code>res.result[n]</code>.
@@ -281,33 +299,112 @@ pgresult_aref( argc, argv, obj)
     VALUE obj;
 {
     PGresult *result;
-    VALUE a1, a2, val;
-    int i, j, nf, nt;
+    int nf, nt;
+    VALUE a1, a2;
+    int i, j;
+    VALUE ret;
 
     result = get_pgresult( obj);
     nt = PQntuples( result);
     nf = PQnfields( result);
+    ret = Qnil;
     switch (rb_scan_args( argc, argv, "11", &a1, &a2)) {
         case 1:
             i = NUM2INT( a1);
-            if (i >= nt) return Qnil;
-            val = rb_ary_new();
-            for (j=0; j<nf; j++) {
-                VALUE value = fetch_pgresult( result, i, j);
-                rb_ary_push( val, value);
+            if (i < nt) {
+                ret = rb_ary_new();
+                for (j = 0; j < nf; j++)
+                    rb_ary_push( ret, fetch_pgresult( result, i, j));
             }
-            return val;
         case 2:
             i = NUM2INT( a1);
-            if (i >= nt) return Qnil;
-            j = NUM2INT( a2);
-            if (j >= nf) return Qnil;
-            return fetch_pgresult( result, i, j);
+            if (i < nt) {
+                j = NUM2INT( a2);
+                if (j < nf)
+                    ret = fetch_pgresult( result, i, j);
+            }
         default:
             break;
     }
-    return Qnil;
+    return ret;
 }
+
+VALUE
+string_unescape_bytea( char *escaped)
+{
+    unsigned char *s;
+    size_t l;
+    VALUE ret;
+
+    s = PQunescapeBytea( (unsigned char *) escaped, &l);
+    ret = rb_str_new( (char *) s, l);
+    PQfreemem( s);
+    return ret;
+}
+
+VALUE
+fetch_pgresult( result, row, column)
+    PGresult *result;
+    int row;
+    int column;
+{
+    char *string;
+    Oid typ;
+    VALUE ret;
+
+    if (PQgetisnull( result, row, column))
+        return Qnil;
+
+    string = PQgetvalue( result, row, column);
+
+    if (!translate_results)
+        return rb_tainted_str_new2( string);
+
+    typ = PQftype( result, column);
+    switch (typ) {
+    case NUMERICOID:
+        {
+            int typmod;
+
+            typmod = PQfmod( result, column);
+            if (typmod != -1 && !((typmod - VARHDRSZ) & 0xffff))
+                break;
+        }
+        /* if scale == 0 fall through and return inum */
+    case INT8OID:
+    case INT4OID:
+    case INT2OID:
+    case OIDOID:
+        return rb_cstr_to_inum( string, 10, 0);
+    case FLOAT8OID:
+    case FLOAT4OID:
+        return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
+    case BOOLOID:
+        return *string == 't' ? Qtrue : Qfalse;
+    case BYTEAOID:
+        ret = string_unescape_bytea( string);
+        OBJ_TAINT( ret);
+        return ret;
+    default:
+        break;
+    }
+    ret = rb_tainted_str_new2( string);
+    switch (typ) {
+    case NUMERICOID:
+        return rb_funcall( rb_cBigDecimal, id_new, 1, ret);
+    case DATEOID:
+        return rb_funcall( rb_cDate, id_parse, 1, ret);
+    case TIMEOID:
+    case TIMETZOID:
+        return rb_funcall( rb_cTime, id_parse, 1, ret);
+    case TIMESTAMPOID:
+    case TIMESTAMPTZOID:
+        return rb_funcall( rb_cDateTime, id_parse, 1, ret);
+    default:
+        return ret;
+    }
+}
+
 
 /*
  * call-seq:
@@ -339,8 +436,8 @@ pgresult_each( self)
  * Returns an array of Strings representing the names of the fields in the
  * result.
  *
- *   res=conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
- *   res.fields => [ 'foo' , 'biggles' , 'jim' , 'jam' ]
+ *   res = conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
+ *   res.fields => [ 'foo', 'biggles', 'jim', 'jam']
  */
 VALUE
 pgresult_fields( obj)
@@ -422,9 +519,9 @@ pgresult_fieldnum( obj, name)
 
     Check_Type( name, T_STRING);
 
-    n = PQfnumber( get_pgresult( obj), STR2CSTR( name));
+    n = PQfnumber( get_pgresult( obj), RSTRING_PTR( name));
     if (n == -1)
-        rb_raise( rb_eArgError, "Unknown field: %s", STR2CSTR( name));
+        rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
     return INT2NUM( n);
 }
 
@@ -435,7 +532,7 @@ pgresult_fieldnum( obj, name)
  * Returns the data type associated with the given column number.
  *
  * The integer returned is the internal +OID+ number (in PostgreSQL) of the
- * type. If you have the PostgreSQL source available, you can see the OIDs for
+ * type.  If you have the PostgreSQL source available, you can see the OIDs for
  * every column type in the file <code>src/include/catalog/pg_type.h</code>.
  */
 VALUE
@@ -633,18 +730,21 @@ pgresult_clear( obj)
 
 void init_pg_result( void)
 {
-    rb_ePGResError = rb_define_class_under( rb_mPg, "ResultError", rb_ePGError);
-    rb_define_method( rb_ePGResError, "status", pgreserror_status, 0);
-    rb_define_method( rb_ePGResError, "sqlstate", pgreserror_sqlst, 0);
-    rb_define_alias( rb_ePGResError, "errcode", "sqlstate");
-    rb_define_method( rb_ePGResError, "primary", pgreserror_primary, 0);
-    rb_define_method( rb_ePGResError, "details", pgreserror_detail, 0);
-    rb_define_method( rb_ePGResError, "hint", pgreserror_hint, 0);
+    rb_ePgResError = rb_define_class_under( rb_mPg, "ResultError", rb_ePgError);
+    rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
+    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
+    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
+    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
+    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
+    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
+    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
 
-    rb_cPGResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
-    rb_include_module( rb_cPGResult, rb_mEnumerable);
+    rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
+    rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
+    rb_undef_method( CLASS_OF( rb_cPgResult), "new");
+    rb_include_module( rb_cPgResult, rb_mEnumerable);
 
-#define RESC_DEF( c) rb_define_const( rb_cPGResult, #c, INT2FIX( PGRES_ ## c))
+#define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
     RESC_DEF( EMPTY_QUERY);
     RESC_DEF( COMMAND_OK);
     RESC_DEF( TUPLES_OK);
@@ -655,27 +755,29 @@ void init_pg_result( void)
     RESC_DEF( FATAL_ERROR);
 #undef RESC_DEF
 
-    rb_define_method( rb_cPGResult, "status", pgresult_status, 0);
-    rb_define_alias( rb_cPGResult, "result", "entries");
-    rb_define_alias( rb_cPGResult, "rows", "entries");
-    rb_define_method( rb_cPGResult, "[]", pgresult_aref, -1);
-    rb_define_method( rb_cPGResult, "each", pgresult_each, 0);
-    rb_define_method( rb_cPGResult, "fields", pgresult_fields, 0);
-    rb_define_method( rb_cPGResult, "num_tuples", pgresult_num_tuples, 0);
-    rb_define_method( rb_cPGResult, "num_fields", pgresult_num_fields, 0);
-    rb_define_method( rb_cPGResult, "fieldname", pgresult_fieldname, 1);
-    rb_define_method( rb_cPGResult, "fieldnum", pgresult_fieldnum, 1);
-    rb_define_method( rb_cPGResult, "type", pgresult_type, 1);
-    rb_define_method( rb_cPGResult, "size", pgresult_size, 1);
-    rb_define_method( rb_cPGResult, "getvalue", pgresult_getvalue, 2);
-    rb_define_method( rb_cPGResult, "getvalue_byname",
+    rb_define_method( rb_cPgResult, "status", pgresult_status, 0);
+    rb_define_alias( rb_cPgResult, "result", "entries");
+    rb_define_alias( rb_cPgResult, "rows", "entries");
+    rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
+    rb_define_method( rb_cPgResult, "each", pgresult_each, 0);
+    rb_define_method( rb_cPgResult, "fields", pgresult_fields, 0);
+    rb_define_method( rb_cPgResult, "num_tuples", pgresult_num_tuples, 0);
+    rb_define_method( rb_cPgResult, "num_fields", pgresult_num_fields, 0);
+    rb_define_method( rb_cPgResult, "fieldname", pgresult_fieldname, 1);
+    rb_define_method( rb_cPgResult, "fieldnum", pgresult_fieldnum, 1);
+    rb_define_method( rb_cPgResult, "type", pgresult_type, 1);
+    rb_define_method( rb_cPgResult, "size", pgresult_size, 1);
+    rb_define_method( rb_cPgResult, "getvalue", pgresult_getvalue, 2);
+    rb_define_method( rb_cPgResult, "getvalue_byname",
                                                  pgresult_getvalue_byname, 2);
-    rb_define_method( rb_cPGResult, "getlength", pgresult_getlength, 2);
-    rb_define_method( rb_cPGResult, "getisnull", pgresult_getisnull, 2);
-    rb_define_method( rb_cPGResult, "cmdtuples", pgresult_cmdtuples, 0);
-    rb_define_method( rb_cPGResult, "cmdstatus", pgresult_cmdstatus, 0);
-    rb_define_method( rb_cPGResult, "oid", pgresult_oid, 0);
-    rb_define_method( rb_cPGResult, "clear", pgresult_clear, 0);
-    rb_define_alias( rb_cPGResult, "close", "clear");
+    rb_define_method( rb_cPgResult, "getlength", pgresult_getlength, 2);
+    rb_define_method( rb_cPgResult, "getisnull", pgresult_getisnull, 2);
+    rb_define_method( rb_cPgResult, "cmdtuples", pgresult_cmdtuples, 0);
+    rb_define_method( rb_cPgResult, "cmdstatus", pgresult_cmdstatus, 0);
+    rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
+    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
+    rb_define_alias( rb_cPgResult, "close", "clear");
+
+    id_parse = rb_intern( "parse");
 }
 

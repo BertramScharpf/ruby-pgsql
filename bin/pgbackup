@@ -7,7 +7,7 @@
 
 require "pgsql"
 
-class Backup < PGconn
+class Backup < Pg::Conn
 
   # This was successfully tested with:
   ARCHIVE_COMMAND =
@@ -32,7 +32,7 @@ class Backup < PGconn
       select spcname, spclocation from pg_tablespace
         where length(spclocation)>0
     ENDSQL
-    ([ ["@CLUSTER", datadir] ] + tblsp).each { |(nam,dir)|
+    [ ["@CLUSTER", datadir], *tblsp].each { |(nam,dir)|
       # We rely on the fact that Postgresql removed all trailing slashes.
       a = arch_cmd.dup
       a.gsub! /%(.)/ do
