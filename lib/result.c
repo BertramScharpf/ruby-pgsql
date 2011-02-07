@@ -30,7 +30,6 @@ static VALUE pgreserror_hint( VALUE self);
 static VALUE pgresult_alloc( VALUE klass);
 static VALUE pgresult_status( VALUE obj);
 static VALUE pgresult_aref( int argc, VALUE *argv, VALUE obj);
-static VALUE pgresult_each( VALUE self);
 static VALUE pgresult_fields( VALUE obj);
 static VALUE pgresult_num_tuples( VALUE obj);
 static VALUE pgresult_num_fields( VALUE obj);
@@ -55,8 +54,6 @@ VALUE rb_cPgResult;
 void
 pg_checkresult( PGconn *conn, PGresult *result)
 {
-    if (result == NULL)
-        pg_raise_exec( conn);
     switch (PQresultStatus( result)) {
         case PGRES_EMPTY_QUERY:
         case PGRES_TUPLES_OK:
@@ -101,19 +98,6 @@ get_pgresult( obj)
     if (result == NULL)
         rb_raise( rb_ePgError, "query not performed");
     return result;
-}
-
-VALUE
-pgresult_result_with_clear( self)
-    VALUE self;
-{
-    if (rb_block_given_p())
-        return rb_ensure( pgresult_each, self, pgresult_clear, self);
-    else {
-        VALUE rows = rb_funcall( self, rb_intern( "rows"), 0);
-        pgresult_clear( self);
-        return rows;
-    }
 }
 
 int

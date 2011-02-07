@@ -19,11 +19,9 @@ extern PGresult *pg_pqexec( PGconn *conn, const char *cmd);
 
 
 /*----------------------------------------------------------------*/
-extern VALUE pgconn_query( int argc, VALUE *argv, VALUE obj);
 extern VALUE pgconn_select_one( int argc, VALUE *argv, VALUE self);
 extern VALUE pgconn_select_value( int argc, VALUE *argv, VALUE self);
 extern VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
-extern VALUE pgconn_async_query( VALUE obj, VALUE str);
 
 extern VALUE pgconn_get_notify( VALUE obj);
 extern VALUE pgconn_insert_table( VALUE obj, VALUE table, VALUE values);

@@ -24,14 +24,14 @@ static int      large_lseek( PGlarge *pglarge, int offset, int whence);
 static VALUE    loread_all( VALUE obj);
 static VALUE    pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd);
 
-static VALUE pglarge_oid( VALUE obj);
-static VALUE pglarge_close( VALUE obj);
-static VALUE pglarge_read( int argc, VALUE *argv, VALUE obj);
-static VALUE pglarge_each_line( VALUE obj);
-static VALUE pglarge_write( VALUE obj, VALUE buffer);
-static VALUE pglarge_seek( VALUE obj, VALUE offset, VALUE whence);
-static VALUE pglarge_tell( VALUE obj);
-static VALUE pglarge_size( VALUE obj);
+static VALUE pglarge_oid( VALUE self);
+static VALUE pglarge_close( VALUE self);
+static VALUE pglarge_read( int argc, VALUE *argv, VALUE self);
+static VALUE pglarge_each_line( VALUE self);
+static VALUE pglarge_write( VALUE self, VALUE buffer);
+static VALUE pglarge_seek( VALUE self, VALUE offset, VALUE whence);
+static VALUE pglarge_tell( VALUE self);
+static VALUE pglarge_size( VALUE self);
 
 
 VALUE rb_cPgLarge;
@@ -113,7 +113,7 @@ loread_all( obj)
     for (;;) {
         rb_str_resize( str, bytes + BUFSIZ);
         n = lo_read( pglarge->pgconn, pglarge->lo_fd,
-                     RSTRING( str)->ptr + bytes, BUFSIZ);
+                     RSTRING_PTR( str) + bytes, BUFSIZ);
         bytes += n;
         if (n < BUFSIZ)
             break;
@@ -177,12 +177,12 @@ loopen_pgconn( conn, objid, nmode)
  * Returns the large object's +oid+.
  */
 VALUE
-pglarge_oid( obj)
-    VALUE obj;
+pglarge_oid( self)
+    VALUE self;
 {
     PGlarge *pglarge;
 
-    pglarge = get_pglarge( obj);
+    pglarge = get_pglarge( self);
     return INT2NUM( pglarge->lo_oid);
 }
 
@@ -193,20 +193,20 @@ pglarge_oid( obj)
  * Closes a large object.
  */
 VALUE
-pglarge_close( obj)
-    VALUE obj;
+pglarge_close( self)
+    VALUE self;
 {
     PGlarge *pglarge;
     int ret;
 
-    pglarge = get_pglarge( obj);
+    pglarge = get_pglarge( self);
     if (pglarge != NULL) {
         ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
         if (ret < 0 &&
                 PQtransactionStatus( pglarge->pgconn) != PQTRANS_INERROR) {
             rb_raise( rb_ePgError, "cannot close large object");
         }
-        DATA_PTR( obj) = NULL;
+        DATA_PTR( self) = NULL;
     }
     return Qnil;
 }
@@ -220,34 +220,30 @@ pglarge_close( obj)
  * If no _length_ is given, reads all data.
  */
 VALUE
-pglarge_read( argc, argv, obj)
+pglarge_read( argc, argv, self)
     int argc;
     VALUE *argv;
-    VALUE obj;
+    VALUE self;
 {
     int len;
-    PGlarge *pglarge = get_pglarge( obj);
-    VALUE str;
+    PGlarge *pglarge = get_pglarge( self);
+    char *buf;
+    int siz;
 
     VALUE length;
     rb_scan_args( argc, argv, "01", &length);
     if (NIL_P( length))
-        return loread_all( obj);
+        return loread_all( self);
 
     len = NUM2INT( length);
     if (len < 0)
         rb_raise( rb_ePgError, "negative length %d given", len);
 
-    str = rb_tainted_str_new( 0, len);
-    len = lo_read( pglarge->pgconn, pglarge->lo_fd, RSTRING_PTR( str), len);
-    if (len < 0)
+    buf = ALLOC_N(char, len);
+    siz = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, len);
+    if (siz < 0)
         rb_raise( rb_ePgError, "error while reading");
-    if (len == 0)
-        return Qnil;
-    else {
-        RSTRING( str)->len = len;
-        return str;
-    }
+    return siz == 0 ? Qnil : rb_tainted_str_new( buf, siz);
 }
 
 /*
@@ -257,8 +253,8 @@ pglarge_read( argc, argv, obj)
  * Reads a large object line by line.
  */
 VALUE
-pglarge_each_line( obj)
-    VALUE obj;
+pglarge_each_line( self)
+    VALUE self;
 {
     PGlarge *pglarge;
     VALUE line;
@@ -266,11 +262,10 @@ pglarge_each_line( obj)
     char buf[ BUFSIZ], *p, *b, c;
     int ct;
 
-    pglarge = get_pglarge( obj);
-    line = rb_tainted_str_new( 0, 0);
-    RETURN_ENUMERATOR( obj, 0, 0);
+    pglarge = get_pglarge( self);
+    RETURN_ENUMERATOR( self, 0, 0);
     /* The code below really looks weird but is thoroughly tested. */
-    line = rb_tainted_str_new( 0, 0);
+    line = rb_tainted_str_new( NULL, 0);
     do {
         len = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, BUFSIZ);
         for (i = 0, j = len, p = buf; j > 0;) {
@@ -281,11 +276,11 @@ pglarge_each_line( obj)
             rb_str_cat( line, b, i - s);
             if (!ct) {
                 rb_yield( line);
-                line = rb_tainted_str_new( 0, 0);
+                line = rb_tainted_str_new( NULL, 0);
             }
         }
     } while (len == BUFSIZ);
-    if (RSTRING(line)->len > 0)
+    if (RSTRING_LEN(line) > 0)
         rb_yield( line);
     return Qnil;
 }
@@ -298,20 +293,20 @@ pglarge_each_line( obj)
  * Returns the number of bytes written.
  */
 VALUE
-pglarge_write( obj, buffer)
-    VALUE obj, buffer;
+pglarge_write( self, buffer)
+    VALUE self, buffer;
 {
     PGlarge *pglarge;
     int n;
 
     Check_Type( buffer, T_STRING);
 
-    if (RSTRING( buffer)->len < 0)
+    if (RSTRING_LEN( buffer) < 0)
         rb_raise( rb_ePgError, "write buffer zero string");
 
-    pglarge = get_pglarge( obj);
+    pglarge = get_pglarge( self);
     n = lo_write( pglarge->pgconn, pglarge->lo_fd,
-                  RSTRING_PTR( buffer), RSTRING( buffer)->len);
+                  RSTRING_PTR( buffer), RSTRING_LEN( buffer));
     if (n == -1)
         rb_raise( rb_ePgError, "buffer truncated during write");
 
@@ -327,10 +322,10 @@ pglarge_write( obj, buffer)
  * (Or 0, 1, or 2.)
  */
 VALUE
-pglarge_seek( obj, offset, whence)
-    VALUE obj, offset, whence;
+pglarge_seek( self, offset, whence)
+    VALUE self, offset, whence;
 {
-    PGlarge *pglarge = get_pglarge( obj);
+    PGlarge *pglarge = get_pglarge( self);
     return INT2NUM( large_lseek( pglarge, NUM2INT( offset), NUM2INT( whence)));
 }
 
@@ -341,10 +336,10 @@ pglarge_seek( obj, offset, whence)
  * Returns the current position of the large object pointer.
  */
 VALUE
-pglarge_tell( obj)
-    VALUE obj;
+pglarge_tell( self)
+    VALUE self;
 {
-    return INT2NUM( large_tell( get_pglarge( obj)));
+    return INT2NUM( large_tell( get_pglarge( self)));
 }
 
 /*
@@ -354,10 +349,10 @@ pglarge_tell( obj)
  * Returns the size of the large object.
  */
 VALUE
-pglarge_size( obj)
-    VALUE obj;
+pglarge_size( self)
+    VALUE self;
 {
-    PGlarge *pglarge = get_pglarge( obj);
+    PGlarge *pglarge = get_pglarge( self);
     int start, end;
 
     start = large_tell( pglarge);

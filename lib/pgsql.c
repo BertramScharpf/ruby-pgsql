@@ -42,50 +42,6 @@ static VALUE pgconn_lastval( VALUE obj);
 
 /*
  * call-seq:
- *    conn.query( sql, *bind_values)
- *
- * Sends SQL query request specified by _sql_ to the PostgreSQL.
- * Returns an Array as the resulting tuple on success.
- * On failure, it returns +nil+, and the error details can be obtained by
- * #error.
- *
- * +bind_values+ represents values for the PostgreSQL bind parameters found in
- * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
- */
-VALUE
-pgconn_query( argc, argv, obj)
-    int argc;
-    VALUE *argv;
-    VALUE obj;
-{
-    VALUE result;
-
-    result = rb_funcall2( obj, rb_intern( "exec"), argc, argv);
-    return pgresult_result_with_clear( result);
-}
-
-/*
- * call-seq:
- *    conn.async_query( sql)
- *
- * Sends an asynchronous SQL query request specified by _sql_ to the
- * PostgreSQL server.
- * Returns an Array as the resulting tuple on success.
- * On failure, it returns +nil+, and the error details can be obtained by
- * #error.
- */
-VALUE
-pgconn_async_query( obj, str)
-    VALUE obj, str;
-{
-    VALUE result;
-
-    result = rb_funcall( obj, rb_intern( "async_exec"), 1, str);
-    return pgresult_result_with_clear( result);
-}
-
-/*
- * call-seq:
  *    conn.get_notify()
  *
  * Returns an array of the unprocessed notifiers.
@@ -134,7 +90,7 @@ pgconn_insert_table( obj, table, values)
 
     Check_Type( table, T_STRING);
     Check_Type( values, T_ARRAY);
-    i = RARRAY( values)->len;
+    i = RARRAY_LEN( values);
     while (i--) {
         if (TYPE( RARRAY( RARRAY( values)->ptr[i])) != T_ARRAY) {
             rb_raise( rb_ePgError,
@@ -142,15 +98,15 @@ pgconn_insert_table( obj, table, values)
         }
     }
 
-    buffer = rb_str_new( 0, RSTRING( table)->len + 17 + 1);
+    buffer = rb_str_new( 0, RSTRING_LEN( table) + 17 + 1);
     /* starts query */
-    snprintf( RSTRING( buffer)->ptr, RSTRING( buffer)->len,
+    snprintf( RSTRING_PTR( buffer), RSTRING_LEN( buffer),
                 "copy %s from stdin ", RSTRING_PTR( table));
 
     result = pg_pqexec( conn, RSTRING_PTR( buffer));
     PQclear( result);
 
-    for (i = 0; i < RARRAY( values)->len; i++) {
+    for (i = 0; i < RARRAY_LEN( values); i++) {
         struct RArray *row = RARRAY( RARRAY( values)->ptr[i]);
         buffer = rb_tainted_str_new( 0, 0);
         for (j = 0; j < row->len; j++) {
@@ -160,7 +116,7 @@ pgconn_insert_table( obj, table, values)
             } else {
                 s = rb_obj_as_string( row->ptr[j]);
                 rb_funcall( s, id_gsub_bang, 2, pg_escape_regex, pg_escape_str);
-                rb_str_cat( buffer, RSTRING_PTR( s), RSTRING( s)->len);
+                rb_str_cat( buffer, RSTRING_PTR( s), RSTRING_LEN( s));
             }
         }
         rb_str_cat( buffer, "\n\0", 2);
@@ -338,7 +294,7 @@ pgconn_getline( obj)
     str = rb_tainted_str_new( 0, size);
 
     for (;;) {
-        ret = PQgetline( conn, RSTRING( str)->ptr + bytes, size - bytes);
+        ret = PQgetline( conn, RSTRING_PTR( str) + bytes, size - bytes);
         switch (ret) {
         case EOF:
             return Qnil;

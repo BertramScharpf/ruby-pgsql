@@ -6,7 +6,12 @@
 #define __MODULE_H
 
 #include <ruby.h>
-#include <rubyio.h>
+#ifdef RUBY_VM
+    #include "ruby/io.h"
+#else
+    #include "rubyio.h"
+    #define rb_io_stdio_file GetWriteFile
+#endif
 #include "undef.h"
 
 #include <postgres.h>

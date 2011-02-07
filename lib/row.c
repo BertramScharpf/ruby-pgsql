@@ -37,7 +37,7 @@ fetch_pgrow( result, row_num)
 
     fields = fetch_fields( result);
     row = rb_funcall( rb_cPgRow, id_new, 1, fields);
-    for (i = 0; i < RARRAY( fields)->len; i++) {
+    for (i = 0; i < RARRAY_LEN( fields); i++) {
         /* don't use push, Pg::Row is sized with nils in #new */
         rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
     }
@@ -52,7 +52,7 @@ pgrow_init( self, keys)
 {
     VALUE len;
     
-    len = LONG2NUM( RARRAY( keys)->len);
+    len = LONG2NUM( RARRAY_LEN( keys));
     rb_call_super( 1, &len);
     rb_ivar_set( self, id_keys, keys);
     return self;
@@ -144,7 +144,7 @@ pgrow_each_pair( self)
     int i;
 
     keys = pgrow_keys( self);
-    for (i = 0; i < RARRAY( keys)->len; ++i)
+    for (i = 0; i < RARRAY_LEN( keys); ++i)
         rb_yield( rb_assoc_new( rb_ary_entry( keys, i),
                                                 rb_ary_entry( self, i)));
     return self;
@@ -195,7 +195,7 @@ pgrow_to_hash( self)
 
     result = rb_hash_new();
     keys = pgrow_keys( self);
-    for (i = 0; i < RARRAY( self)->len; ++i) {
+    for (i = 0; i < RARRAY_LEN( self); ++i) {
         rb_hash_aset( result, rb_ary_entry( keys, i), rb_ary_entry( self, i));
     }
     return result;

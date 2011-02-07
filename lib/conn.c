@@ -60,10 +60,15 @@ static VALUE pgconn_client_encoding( VALUE obj);
 static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
 
 
+static const char **params_to_strings( VALUE conn, VALUE params);
+static VALUE exec_sql_statement( int argc, VALUE *argv, VALUE self);
 static VALUE yield_or_return_result( VALUE res);
 static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_async_exec( int argc, VALUE *argv, VALUE obj);
-extern VALUE pgconn_async_fetch( VALUE obj);
+static VALUE clear_resultqueue( VALUE obj);
+static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
+extern VALUE pgconn_fetch( VALUE obj);
+
+static VALUE pgconn_query( int argc, VALUE *argv, VALUE obj);
 
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
@@ -99,6 +104,8 @@ PGresult *pg_pqexec( PGconn *conn, const char *cmd)
     PGresult *result;
 
     result = PQexec( conn, cmd);
+    if (result == NULL)
+        pg_raise_exec( conn);
     pg_checkresult( conn, result);
     return result;
 }
@@ -513,7 +520,7 @@ pgconn_trace( obj, port)
 
     Check_Type( port, T_FILE);
     GetOpenFile( port, fp);
-    PQtrace( get_pgconn( obj), fp->f2?fp->f2:fp->f);
+    PQtrace( get_pgconn( obj), rb_io_stdio_file( fp));
     return obj;
 }
 
@@ -659,7 +666,7 @@ stringize_array( self, result, ary)
     VALUE r;
 
     cf = Qundef;
-    for (o = RARRAY( ary)->ptr, j = RARRAY( ary)->len; j; ++o, --j) {
+    for (o = RARRAY_PTR( ary), j = RARRAY_LEN( ary); j; ++o, --j) {
         co = CLASS_OF( *o);
         if (cf == Qundef)
             cf = co;
@@ -806,7 +813,7 @@ quote_string( conn, str)
     VALUE result;
 
     p = PQescapeLiteral( get_pgconn( conn),
-                        RSTRING( str)->ptr, RSTRING( str)->len);
+                    RSTRING_PTR( str), RSTRING_LEN( str));
     result = rb_str_new2( p);
     PQfreemem( p);
     OBJ_INFECT( result, str);
@@ -822,7 +829,7 @@ quote_array( self, result, ary)
     VALUE cf, co;
 
     cf = Qundef;
-    for (o = RARRAY( ary)->ptr, j = RARRAY( ary)->len; j; ++o, --j) {
+    for (o = RARRAY_PTR( ary), j = RARRAY_LEN( ary); j; ++o, --j) {
         co = CLASS_OF( *o);
         if (cf == Qundef)
             cf = co;
@@ -925,7 +932,7 @@ void quote_all( self, ary, res)
     VALUE *p;
     long len;
 
-    for (p = RARRAY( ary)->ptr, len = RARRAY( ary)->len; len; len--, p++) {
+    for (p = RARRAY_PTR( ary), len = RARRAY_LEN( ary); len; len--, p++) {
         if (TYPE( *p) == T_ARRAY)
             quote_all( self, *p, res);
         else {
@@ -983,6 +990,46 @@ pgconn_set_client_encoding( obj, str)
 }
 
 
+const char **params_to_strings( conn, params)
+    VALUE conn, params;
+{
+    VALUE *ptr;
+    int len;
+    const char **values, **v;
+
+    ptr = RARRAY_PTR( params);
+    len = RARRAY_LEN( params);
+    values = ALLOCA_N( const char *, len);
+    for (v = values; len; v++, ptr++, len--)
+        *v = *ptr == Qnil ? NULL
+                         : RSTRING_PTR( pgconn_s_stringize( conn, *ptr));
+    return values;
+}
+
+VALUE
+exec_sql_statement( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    PGconn *conn;
+    PGresult *result;
+    VALUE command, params;
+    int len;
+
+    conn = get_pgconn( self);
+    rb_scan_args( argc, argv, "1*", &command, &params);
+    Check_Type( command, T_STRING);
+    len = RARRAY_LEN( params);
+    result = len <= 0 ?
+        PQexec( conn, RSTRING_PTR( command)) :
+        PQexecParams( conn, RSTRING_PTR( command), len,
+                        NULL, params_to_strings( self, params), NULL, NULL, 0);
+    if (result == NULL)
+        pg_raise_exec( conn);
+    pg_checkresult( conn, result);
+    return pgresult_new( conn, result);
+}
 
 VALUE
 yield_or_return_result( result)
@@ -1003,110 +1050,92 @@ yield_or_return_result( result)
  * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
  */
 VALUE
-pgconn_exec( argc, argv, obj)
+pgconn_exec( argc, argv, self)
     int argc;
     VALUE *argv;
+    VALUE self;
+{
+    return yield_or_return_result( exec_sql_statement( argc, argv, self));
+}
+
+
+VALUE
+clear_resultqueue( obj)
     VALUE obj;
 {
     PGconn *conn;
     PGresult *result;
-    VALUE command, params;
-    int len;
 
     conn = get_pgconn( obj);
-    rb_scan_args( argc, argv, "1*", &command, &params);
-    Check_Type( command, T_STRING);
-    len = RARRAY( params)->len;
-    if (len <= 0)
-        result = PQexec( conn, RSTRING_PTR( command));
-    else {
-        int i;
-        VALUE *ptr = RARRAY( params)->ptr;
-        const char **values = ALLOCA_N( const char *, len);
-
-        for (i = 0; i < len; i++, ptr++)
-            values[ i] = *ptr == Qnil ? NULL :
-                RSTRING_PTR( pgconn_s_stringize( obj, *ptr));
-        result = PQexecParams( conn, RSTRING_PTR( command), len,
-                                NULL, values, NULL, NULL, 0);
-    }
-    pg_checkresult( conn, result);
-    return yield_or_return_result( pgresult_new( conn, result));
+    while ((result = PQgetResult( conn)) != NULL)
+        PQclear( result);
+    return Qnil;
 }
 
 /*
  * call-seq:
- *    conn.async_exec( sql, *bind_values)   -> nil
+ *    conn.send( sql, *bind_values)   -> nil
  *
  * Sends an asynchronous SQL query request specified by +sql+ to the
  * PostgreSQL server.
  *
- * Use Pg::Conn#async_fetch to fetch the results after you waited for data.
+ * Use Pg::Conn#fetch to fetch the results after you waited for data.
  *
  *   Pg::Conn.connect do |conn|
- *     s = conn.async_exec "select pg_sleep(3), * from t;"
- *     puts s.inspect
- *     loop do
- *       r = IO.select [ conn.socket], nil, nil, 0.5
- *       break if r
- *       puts Time.now
+ *     conn.send "select pg_sleep(3), * from t;" do 
+ *       ins = [ conn.socket]
+ *       loop do
+ *         r = IO.select ins, nil, nil, 0.5
+ *         break if r
+ *         puts Time.now
+ *       end
+ *       res = conn.fetch
+ *       res.each { |w| puts w.inspect }
  *     end
- *     res = conn.async_fetch
- *     res.each { |w| puts w.inspect }
  *   end
  */
 VALUE
-pgconn_async_exec( argc, argv, obj)
+pgconn_send( argc, argv, self)
     int argc;
     VALUE *argv;
-    VALUE obj;
+    VALUE self;
 {
     PGconn *conn;
     int res;
     VALUE command, params;
     int len;
 
-    conn = get_pgconn( obj);
-    {
-        PGresult *result;
-        while ((result = PQgetResult( conn)))
-            PQclear( result);
-    }
     rb_scan_args( argc, argv, "1*", &command, &params);
     Check_Type( command, T_STRING);
-    len = RARRAY( params)->len;
+    len = RARRAY_LEN( params);
+    conn = get_pgconn( self);
     if (len <= 0)
         res = PQsendQuery( conn, RSTRING_PTR( command));
-    else {
-        int i;
-        VALUE *ptr = RARRAY( params)->ptr;
-        const char **values = ALLOCA_N( const char *, len);
-
-        for (i = 0; i < len; i++, ptr++)
-            values[ i] = *ptr == Qnil ? NULL :
-                RSTRING_PTR( pgconn_s_stringize( obj, *ptr));
+    else
         res = PQsendQueryParams( conn, RSTRING_PTR( command), len,
-                                NULL, values, NULL, NULL, 0);
-    }
+                NULL, params_to_strings( self, params), NULL, NULL, 0);
     if (res <= 0)
         pg_raise_conn( conn);
-    return Qnil;
+    return rb_ensure( rb_yield, Qnil, clear_resultqueue, self);
 }
 
 /*
  * call-seq:
- *    conn.async_fetch()                   -> result or nil
- *    conn.async_fetch() { |result| ... }  -> obj
+ *    conn.fetch()                   -> result or nil
+ *    conn.fetch() { |result| ... }  -> obj
  *
- * Fetches the results of the proevious Pg::Conn#async_exec call.
+ * Fetches the results of the proevious Pg::Conn#send call.
  * See there for an example.
+ *
+ * The result will be +nil+ if there are no more results.
  */
 VALUE
-pgconn_async_fetch( obj)
+pgconn_fetch( obj)
     VALUE obj;
 {
     PGconn *conn;
     PGresult *result;
+    VALUE res;
 
     conn = get_pgconn( obj);
     if (PQconsumeInput( conn) == 0)
@@ -1114,9 +1143,47 @@ pgconn_async_fetch( obj)
     if (PQisBusy( conn) > 0)
         return Qnil;
     result = PQgetResult( conn);
-    pg_checkresult( conn, result);
-    return yield_or_return_result( pgresult_new( conn, result));
+    if (result == NULL)
+        res = Qnil;
+    else {
+        pg_checkresult( conn, result);
+        res = pgresult_new( conn, result);
+    }
+    return yield_or_return_result( res);
 }
+
+
+
+/*
+ * call-seq:
+ *    conn.query( sql, *bind_values)    -> rows
+ *    conn.query( sql, *bind_values) { |row| ... }   -> int or nil
+ *
+ * This is almost the same as Pg::Conn#exec except that it will yield or return
+ * rows skipping the result object.
+ *
+ * If given a block, the nonzero number of rows will be returned or nil
+ * otherwise.
+ */
+VALUE
+pgconn_query( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE result;
+
+    result = exec_sql_statement( argc, argv, self);
+
+    if (rb_block_given_p())
+        return rb_ensure( pgresult_each, result, pgresult_clear, result);
+    else {
+        VALUE rows = rb_funcall( result, rb_intern( "rows"), 0);
+        pgresult_clear( result);
+        return rows;
+    }
+}
+
 
 
 
@@ -1318,14 +1385,13 @@ void init_pg_conn( void)
                                                pgconn_set_client_encoding, 1);
 
     rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
-    rb_define_method( rb_cPgConn, "async_exec", pgconn_async_exec, -1);
-    rb_define_method( rb_cPgConn, "async_fetch", pgconn_async_fetch, 0);
+    rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
+    rb_define_method( rb_cPgConn, "fetch", pgconn_fetch, 0);
 
     rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
     rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
     rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
     rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
-    rb_define_method( rb_cPgConn, "async_query", pgconn_async_query, 1);
     rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
     rb_define_method( rb_cPgConn, "insert_table", pgconn_insert_table, 2);
 
