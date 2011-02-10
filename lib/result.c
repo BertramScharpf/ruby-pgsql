@@ -14,13 +14,12 @@
 
 
 static ID id_parse;
+static ID id_index;
 
 
 static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
 
-
-static VALUE pgreserror_new( PGresult *ptr);
 static VALUE pgreserror_status( VALUE obj);
 static VALUE pgreserror_sqlst( VALUE self);
 static VALUE pgreserror_primary( VALUE self);
@@ -72,21 +71,6 @@ pg_checkresult( PGconn *conn, PGresult *result)
             break;
     }
 }
-
-VALUE
-fetch_fields( result)
-    PGresult *result;
-{
-    VALUE ary;
-    int n, i;
-
-    n = PQnfields( result);
-    ary = rb_ary_new2( n);
-    for (i = 0; i < n; i++)
-        rb_ary_push( ary, rb_tainted_str_new2( PQfname( result, i)));
-    return ary;
-}
-
 
 PGresult *
 get_pgresult( obj)
@@ -266,63 +250,34 @@ pgresult_status( obj)
     return INT2NUM( PQresultStatus( get_pgresult( obj)));
 }
 
-/*
- * call-seq:
- *    res[ n]     -> ary
- *    res[ n, m]  -> obj
- *
- * Returns the tuple (row) corresponding to _n_.  Returns +nil+ if <code>_n_ >=
- * res.num_tuples</code>.
- *
- * Equivalent to <code>res.result[n]</code>.
- */
-VALUE
-pgresult_aref( argc, argv, obj)
-    int argc;
-    VALUE *argv;
-    VALUE obj;
-{
-    PGresult *result;
-    int nf, nt;
-    VALUE a1, a2;
-    int i, j;
-    VALUE ret;
 
-    result = get_pgresult( obj);
-    nt = PQntuples( result);
-    nf = PQnfields( result);
-    ret = Qnil;
-    switch (rb_scan_args( argc, argv, "11", &a1, &a2)) {
-        case 1:
-            i = NUM2INT( a1);
-            if (i < nt) {
-                ret = rb_ary_new();
-                for (j = 0; j < nf; j++)
-                    rb_ary_push( ret, fetch_pgresult( result, i, j));
-            }
-        case 2:
-            i = NUM2INT( a1);
-            if (i < nt) {
-                j = NUM2INT( a2);
-                if (j < nf)
-                    ret = fetch_pgresult( result, i, j);
-            }
-        default:
-            break;
+VALUE
+fetch_fields( result)
+    PGresult *result;
+{
+    VALUE ary;
+    int n, i;
+    VALUE str;
+
+    n = PQnfields( result);
+    ary = rb_ary_new2( n);
+    for (i = 0; i < n; i++) {
+        str = rb_tainted_str_new2( PQfname( result, i));
+        rb_str_freeze( str);
+        rb_ary_push( ary, str);
     }
-    return ret;
+    rb_ary_freeze( ary);
+    return ary;
 }
 
-VALUE
-string_unescape_bytea( char *escaped)
+VALUE field_index( fields, name)
+    VALUE fields, name;
 {
-    unsigned char *s;
-    size_t l;
     VALUE ret;
 
-    s = PQunescapeBytea( (unsigned char *) escaped, &l);
-    ret = rb_str_new( (char *) s, l);
-    PQfreemem( s);
+    ret = rb_funcall( fields, id_index, 1, name);
+    if (ret == Qnil)
+        rb_raise( rb_ePgError, "%s: field not found", RSTRING_PTR( name));
     return ret;
 }
 
@@ -389,10 +344,85 @@ fetch_pgresult( result, row, column)
     }
 }
 
+VALUE
+fetch_pgrow( result, row_num, fields)
+    PGresult *result;
+    int row_num;
+    VALUE fields;
+{
+    VALUE row;
+    int i, l;
+
+    row = rb_funcall( rb_cPgRow, id_new, 1, fields);
+    for (i = 0, l = RARRAY_LEN( row); l; ++i, --l)
+        rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
+    return row;
+}
 
 /*
  * call-seq:
- *    res.each{ |tuple| ... }  ->  nil or int
+ *    res[ n]     -> ary
+ *    res[ n, m]  -> obj
+ *
+ * Returns the tuple (row) corresponding to _n_.  Returns +nil+ if <code>_n_ >=
+ * res.num_tuples</code>.
+ *
+ * Equivalent to <code>res.result[n]</code>.
+ */
+VALUE
+pgresult_aref( argc, argv, obj)
+    int argc;
+    VALUE *argv;
+    VALUE obj;
+{
+    PGresult *result;
+    int nf, nt;
+    VALUE a1, a2;
+    int i, j;
+    VALUE ret;
+
+    result = get_pgresult( obj);
+    nt = PQntuples( result);
+    nf = PQnfields( result);
+    ret = Qnil;
+    switch (rb_scan_args( argc, argv, "11", &a1, &a2)) {
+        case 1:
+            i = NUM2INT( a1);
+            if (i < nt)
+                ret = fetch_pgrow( result, i, fetch_fields( result));
+            break;
+        case 2:
+            i = NUM2INT( a1);
+            if (i < nt) {
+                if (TYPE( a2) == T_STRING)
+                    a2 = field_index( fetch_fields( result), a2);
+                j = NUM2INT( a2);
+                if (j < nf)
+                    ret = fetch_pgresult( result, i, j);
+            }
+            break;
+        default:
+            break;
+    }
+    return ret;
+}
+
+VALUE
+string_unescape_bytea( char *escaped)
+{
+    unsigned char *s;
+    size_t l;
+    VALUE ret;
+
+    s = PQunescapeBytea( (unsigned char *) escaped, &l);
+    ret = rb_str_new( (char *) s, l);
+    PQfreemem( s);
+    return ret;
+}
+
+/*
+ * call-seq:
+ *    res.each { |tuple| ... }  ->  nil or int
  *
  * Invokes the block for each tuple (row) in the result.
  *
@@ -405,10 +435,12 @@ pgresult_each( self)
 {
     PGresult *result;
     int n, r;
+    VALUE fields;
 
     result = get_pgresult( self);
+    fields = fetch_fields( result);
     for (n = 0, r = PQntuples( result); r; n++, r--)
-        rb_yield( fetch_pgrow( result, n));
+        rb_yield( fetch_pgrow( result, n, fields));
 
     return n ? INT2NUM( n) : Qnil;
 }
@@ -763,5 +795,6 @@ void init_pg_result( void)
     rb_define_alias( rb_cPgResult, "close", "clear");
 
     id_parse = rb_intern( "parse");
+    id_index = rb_intern( "index");
 }
 

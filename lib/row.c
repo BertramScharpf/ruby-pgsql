@@ -9,6 +9,7 @@
 
 
 static ID id_keys;
+static ID id_arity;
 
 static VALUE pgrow_init( VALUE self, VALUE keys);
 static VALUE pgrow_aref( int argc, VALUE * argv, VALUE self);
@@ -23,26 +24,6 @@ static VALUE pgrow_to_hash( VALUE self);
 
 
 VALUE rb_cPgRow;
-
-
-
-VALUE
-fetch_pgrow( result, row_num)
-    PGresult *result;
-    int row_num;
-{
-    VALUE row;
-    VALUE fields;
-    int i;
-
-    fields = fetch_fields( result);
-    row = rb_funcall( rb_cPgRow, id_new, 1, fields);
-    for (i = 0; i < RARRAY_LEN( fields); i++) {
-        /* don't use push, Pg::Row is sized with nils in #new */
-        rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
-    }
-    return row;
-}
 
 
 
@@ -71,20 +52,10 @@ pgrow_aref( argc, argv, self)
     VALUE *argv;
     VALUE  self;
 {
-    if (argc == 1 && TYPE( argv[0]) == T_STRING) {
-        VALUE keys = pgrow_keys( self);
-        VALUE index = rb_funcall( keys, rb_intern( "index"), 1, argv[0]);
-        if (index == Qnil) {
-            rb_raise( rb_ePgError, "%s: field not found",
-                            RSTRING_PTR( argv[0]));
-        }
-        else {
-            return rb_ary_entry( self, NUM2INT( index));
-        }
-    }
-    else {
-        return rb_call_super( argc, argv);
-    }
+    if (argc == 1 && TYPE( argv[0]) == T_STRING)
+        return rb_ary_entry( self, NUM2INT(
+            field_index( pgrow_keys( self), argv[ 0])));
+    return rb_call_super( argc, argv);
 }
 
 /*
@@ -122,12 +93,10 @@ VALUE
 pgrow_each( self)
     VALUE self;
 {
-    int arity = NUM2INT( rb_funcall( rb_block_proc(), rb_intern( "arity"), 0));
-    if (arity == 2)
-        pgrow_each_pair( self);
-    else
-        pgrow_each_value( self);
-    return self;
+    int arity;
+
+    arity = NUM2INT( rb_funcall( rb_block_proc(), id_arity, 0));
+    return arity == 2 ? pgrow_each_pair( self) : pgrow_each_value( self);
 }
 
 /*
@@ -146,7 +115,7 @@ pgrow_each_pair( self)
     keys = pgrow_keys( self);
     for (i = 0; i < RARRAY_LEN( keys); ++i)
         rb_yield( rb_assoc_new( rb_ary_entry( keys, i),
-                                                rb_ary_entry( self, i)));
+                                rb_ary_entry( self, i)));
     return self;
 }
 
@@ -195,9 +164,8 @@ pgrow_to_hash( self)
 
     result = rb_hash_new();
     keys = pgrow_keys( self);
-    for (i = 0; i < RARRAY_LEN( self); ++i) {
+    for (i = 0; i < RARRAY_LEN( self); ++i)
         rb_hash_aset( result, rb_ary_entry( keys, i), rb_ary_entry( self, i));
-    }
     return result;
 }
 
@@ -224,6 +192,7 @@ void init_pg_row( void)
     rb_define_method( rb_cPgRow, "each_value", pgrow_each_value, 0);
     rb_define_method( rb_cPgRow, "to_hash", pgrow_to_hash, 0);
 
-    id_keys = rb_intern( "@keys");
+    id_keys  = rb_intern( "@keys");
+    id_arity = rb_intern( "arity");
 }
 

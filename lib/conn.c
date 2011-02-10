@@ -12,9 +12,15 @@
 #include "result.h"
 
 
-static ID    id_to_s;
-static ID    id_to_postgres;
-static ID    id_iso8601;
+static ID id_to_postgres;
+static ID id_iso8601;
+static ID id_rows;
+static ID id_call;
+static ID id_on_notice;
+static ID id_gsub_bang;
+
+static VALUE pg_escape_regex;
+static VALUE pg_escape_str;
 
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
@@ -37,6 +43,9 @@ static VALUE pgconn_tty( VALUE obj);
 static VALUE pgconn_user( VALUE obj);
 static VALUE pgconn_status( VALUE obj);
 static VALUE pgconn_error( VALUE obj);
+static void notice_receiver( void *self, const PGresult *result);
+static VALUE pgconn_on_notice( VALUE self);
+
 static VALUE pgconn_socket( VALUE obj);
 
 static VALUE pgconn_trace( VALUE obj, VALUE port);
@@ -48,6 +57,7 @@ static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
 static VALUE pgconn_s_stringize( VALUE self, VALUE obj);
+static VALUE pgconn_s_stringize_line( VALUE self, VALUE ary);
 
 static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
 static VALUE quote_string( VALUE conn, VALUE str);
@@ -66,9 +76,21 @@ static VALUE yield_or_return_result( VALUE res);
 static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
 static VALUE clear_resultqueue( VALUE obj);
 static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
-extern VALUE pgconn_fetch( VALUE obj);
+static VALUE pgconn_fetch( VALUE obj);
 
-static VALUE pgconn_query( int argc, VALUE *argv, VALUE obj);
+static VALUE pgconn_query(         int argc, VALUE *argv, VALUE obj);
+static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_get_notify( VALUE self);
+
+static VALUE rescue_transaction( VALUE obj);
+static VALUE yield_transaction( VALUE obj);
+static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE obj);
+static VALUE rescue_subtransaction( VALUE obj);
+static VALUE yield_subtransaction( VALUE obj);
+static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE obj);
+static VALUE pgconn_transaction_status( VALUE obj);
 
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
@@ -193,7 +215,7 @@ int set_connect_params( st_data_t key, st_data_t val, st_data_t args)
     return ST_CONTINUE;
 }
 
-static const char re_connstr[] = 
+static const char re_connstr[] =
     "\\A"
     "(?:(.*?)(?::(.*))?@)?"             /* user:passwd@     */
     "(?:(.*?)(?::(\\d+))?/)?(?:(.+))?"  /* host:port/dbname */
@@ -227,21 +249,25 @@ void connstr_to_hash( VALUE params, VALUE str)
 
 void connstr_passwd( VALUE self, VALUE params)
 {
-    VALUE pw, id, cl, repl;
+    VALUE id_password;
+    VALUE pw, cl, repl;
 
-    pw = rb_hash_aref( params, ID2SYM( rb_intern( KEY_PASSWORD)));
+    id_password = ID2SYM( rb_intern( KEY_PASSWORD));
+    pw = rb_hash_aref( params, id_password);
     if (TYPE( pw) == T_STRING && RSTRING_LEN( pw) == 0) {
-        id = rb_intern( "password?");
-        if (rb_respond_to( self, id))
-            repl = rb_funcall( self, id, 0);
+        VALUE id_password_q;
+
+        id_password_q = rb_intern( "password?");
+        if (rb_respond_to( self, id_password_q))
+            repl = rb_funcall( self, id_password_q, 0);
         else {
             cl = CLASS_OF( self);
-            if (rb_respond_to( cl, id))
-                repl = rb_funcall( cl, id, 0);
+            if (rb_respond_to( cl, id_password_q))
+                repl = rb_funcall( cl, id_password_q, 0);
             else
                 repl = Qnil;
         }
-        rb_hash_aset( params, ID2SYM( rb_intern( KEY_PASSWORD)), repl);
+        rb_hash_aset( params, id_password, repl);
     }
 }
 
@@ -487,6 +513,61 @@ pgconn_error( obj)
     return error != NULL ? rb_tainted_str_new2( error) : Qnil;
 }
 
+void
+notice_receiver( self, result)
+    void *self;
+    const PGresult *result;
+{
+    VALUE block, err;
+
+    block = rb_ivar_get( (VALUE) self, id_on_notice);
+    if (block != Qnil) {
+        err = pgreserror_new( (PGresult *) result);
+        rb_funcall( block, id_call, 1, err);
+        /* PQclear will be done by Postgres. */
+    }
+}
+
+/*
+ * call-seq:
+ *   conn.on_notice { |message| ... }
+ *
+ * This method yields a PG::ResultError object in case a nonfatal exception
+ * was raised.
+ *
+ * Here's an example:
+ *
+ *   conn.exec <<-EOT
+ *     create or replace function noise() returns void as $$
+ *     begin
+ *       raise notice 'Hi!';
+ *     end;
+ *     $$ language plpgsql;
+ *   EOT
+ *   conn.on_notice { |e| puts e.inspect }
+ *   conn.exec "select noise();"
+ */
+VALUE
+pgconn_on_notice( self)
+    VALUE self;
+{
+    PGconn *conn;
+
+    conn = get_pgconn( self);
+    if (PQsetNoticeReceiver( conn, NULL, NULL) != &notice_receiver) {
+        if (!id_call)
+            id_call = rb_intern( "call");
+        PQsetNoticeReceiver( conn, &notice_receiver, (void *) self);
+    }
+    if (!id_on_notice)
+        id_on_notice = rb_intern( "@on_notice");
+    rb_ivar_set( self, id_on_notice, rb_block_proc());
+    return self;
+}
+
+
+
+
 /*
  * call-seq:
  *    conn.socket()  -> io
@@ -498,7 +579,7 @@ pgconn_socket( obj)
     VALUE obj;
 {
     int fd;
-    
+
     fd = PQsocket( get_pgconn( obj));
     return rb_funcall( rb_cIO, id_new, 1, INT2NUM( fd));
 }
@@ -692,7 +773,8 @@ stringize_array( self, result, ary)
  * This methods makes a string out of everything.  Numbers, booleans, +nil+,
  * date and time values, and even arrays will be written as PostgreSQL accepts
  * constants.  You may pass the result as a parameter to +exec+, +query+ etc.
- * or as a field after a +COPY+ statement.
+ * or as a field after a +COPY+ statement if you don't use the standard
+ * delimiters.
  *
  * Any other objects will be checked whether they have a method named
  * +to_postgres+.  If that doesn't exist the object will be converted by +to_s+.
@@ -763,6 +845,41 @@ pgconn_s_stringize( self, obj)
     }
     return result;
 }
+
+/*
+ * call-seq:
+ *    Pg::Conn.stringize_line( ary)  ->  str
+ *
+ * Quote a line the standard way that +COPY+ expects. Tabs, newlines, and
+ * backslashes will be escaped, +nil+ will become "\\N".
+ */
+VALUE pgconn_s_stringize_line( self, ary)
+    VALUE self, ary;
+{
+    VALUE *a;
+    int l;
+    VALUE ret, s;
+
+    Check_Type( ary, T_ARRAY);
+
+    ret = rb_str_new( NULL, 0);
+    for (l = RARRAY_LEN( ary), a = RARRAY_PTR( ary); l; ++a) {
+        if (NIL_P( *a))
+            rb_str_cat( ret, "\\N", 2);
+        else {
+            s = pgconn_s_stringize( self, *a);
+            rb_funcall( s, id_gsub_bang, 2, pg_escape_regex, pg_escape_str);
+            rb_str_cat( ret, RSTRING_PTR( s), RSTRING_LEN( s));
+        }
+        if (--l > 0)
+            rb_str_cat( ret, "\t", 1);
+        else
+            rb_str_cat( ret, "\n", 1);
+    }
+    return ret;
+}
+
+
 
 
 /*
@@ -958,6 +1075,9 @@ VALUE pgconn_quote_all( argc, argv, self)
 }
 
 
+
+
+
 /*
  * call-seq:
  *    conn.client_encoding() -> String
@@ -1082,7 +1202,7 @@ clear_resultqueue( obj)
  * Use Pg::Conn#fetch to fetch the results after you waited for data.
  *
  *   Pg::Conn.connect do |conn|
- *     conn.send "select pg_sleep(3), * from t;" do 
+ *     conn.send "select pg_sleep(3), * from t;" do
  *       ins = [ conn.socket]
  *       loop do
  *         r = IO.select ins, nil, nil, 0.5
@@ -1174,14 +1294,265 @@ pgconn_query( argc, argv, self)
     VALUE result;
 
     result = exec_sql_statement( argc, argv, self);
-
     if (rb_block_given_p())
         return rb_ensure( pgresult_each, result, pgresult_clear, result);
     else {
-        VALUE rows = rb_funcall( result, rb_intern( "rows"), 0);
+        VALUE rows;
+
+        if (!id_rows)
+            id_rows = rb_intern( "rows");
+        rows = rb_funcall( result, id_rows, 0);
         pgresult_clear( result);
         return rows;
     }
+}
+
+/*
+ * call-seq:
+ *   conn.select_one( query, *bind_values)
+ *
+ * Return the first row of the query results.
+ * Equivalent to <code>conn.query( query, *bind_values).first</code>.
+ */
+VALUE
+pgconn_select_one( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE res;
+    VALUE row;
+    PGresult *result;
+
+    res = exec_sql_statement( argc, argv, self);
+    result = get_pgresult( res);
+    row = PQntuples( result) ? fetch_pgrow( result, 0, fetch_fields( result))
+                             : Qnil;
+    pgresult_clear( res);
+    return row;
+}
+
+/*
+ * call-seq:
+ *   conn.select_value( query, *bind_values)
+ *
+ * Return the first value of the first row of the query results.
+ * Equivalent to conn.query( query, *bind_values).first.first
+ */
+VALUE
+pgconn_select_value( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE res;
+    PGresult *result;
+    VALUE ret;
+
+    res = exec_sql_statement( argc, argv, self);
+    result = get_pgresult( res);
+    ret = PQntuples( result) ? fetch_pgresult( result, 0, 0) : Qnil;
+    pgresult_clear( res);
+    return ret;
+}
+
+/*
+ * call-seq:
+ *   conn.select_values( query, *bind_values)
+ *
+ * Equivalent to conn.query( query, *bind_values).flatten
+ */
+VALUE
+pgconn_select_values( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE res;
+    PGresult *result;
+    int n, m;
+    VALUE ret;
+    int i, j, k;
+
+    res = exec_sql_statement( argc, argv, self);
+    result = get_pgresult( res);
+    n = PQntuples( result), m = PQnfields( result);
+    ret = rb_ary_new2( n * m);
+    for (i = 0, k = 0; n; ++i, --n) {
+        for (j = 0; m; ++j, --m, ++k)
+            rb_ary_store( ret, k, fetch_pgresult( result, i, j));
+        m = j;
+    }
+    pgresult_clear( res);
+    return ret;
+}
+
+/*
+ * call-seq:
+ *    conn.get_notify()  -> ary or nil
+ *
+ * Returns a notifier. If there is no unprocessed notifier, it returns +nil+.
+ */
+VALUE
+pgconn_get_notify( self)
+    VALUE self;
+{
+    PGconn *conn;
+    PGnotify *notify;
+    VALUE ret;
+
+    conn = get_pgconn( self);
+    if (PQconsumeInput( conn) == 0)
+        pg_raise_exec( conn);
+    notify = PQnotifies( conn);
+    if (notify == NULL)
+        return Qnil;
+    ret = rb_ary_new3( 3, rb_tainted_str_new2( notify->relname),
+                          INT2NUM( notify->be_pid),
+                          rb_tainted_str_new2( notify->extra));
+    PQfreemem( notify);
+    return ret;
+}
+
+
+
+
+VALUE
+rescue_transaction( obj)
+    VALUE obj;
+{
+    pg_pqexec( get_pgconn( obj), "rollback;");
+    rb_exc_raise( ruby_errinfo);
+    return Qnil;
+}
+
+VALUE
+yield_transaction( obj)
+    VALUE obj;
+{
+    VALUE r;
+
+    r = rb_yield( obj);
+    pg_pqexec( get_pgconn( obj), "commit;");
+    return r;
+}
+
+/*
+ * call-seq:
+ *    conn.transaction( ser = nil, ro = nil) { |conn| ... }
+ *
+ * Open and close a transaction block.  The isolation level will be
+ * 'serializable' if +ser+ is true, else 'repeatable read'.
+ * +ro+ means 'read only'.
+ *
+ * (In C++ terms, +ro+ is const, and +ser+ is not volatile.)
+ *
+ */
+VALUE
+pgconn_transaction( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE ser, ro;
+    VALUE cmd;
+    int p;
+
+    rb_scan_args( argc, argv, "02", &ser, &ro);
+    cmd = rb_str_buf_new2( "begin");
+    p = 0;
+    if (!NIL_P( ser)) {
+        rb_str_buf_cat2( cmd, " isolation level ");
+        rb_str_buf_cat2( cmd, (RTEST(ser) ? "serializable" : "read committed"));
+        p++;
+    }
+    if (!NIL_P( ro)) {
+        if (p) rb_str_buf_cat2( cmd, ",");
+        rb_str_buf_cat2( cmd, " read ");
+        rb_str_buf_cat2( cmd, (RTEST(ro)  ? "only" : "write"));
+    }
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( self), RSTRING_PTR(cmd));
+    return rb_rescue( yield_transaction, self, rescue_transaction, self);
+}
+
+
+VALUE
+rescue_subtransaction( ary)
+    VALUE ary;
+{
+    VALUE cmd;
+
+    cmd = rb_str_buf_new2( "rollback to savepoint ");
+    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), RSTRING_PTR(cmd));
+
+    rb_exc_raise( ruby_errinfo);
+    return Qnil;
+}
+
+VALUE
+yield_subtransaction( ary)
+    VALUE ary;
+{
+    VALUE r, cmd;
+
+    r = rb_yield( ary);
+
+    cmd = rb_str_buf_new2( "release savepoint ");
+    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), RSTRING_PTR(cmd));
+
+    return r;
+}
+
+/*
+ * call-seq:
+ *    conn.subtransaction( nam, *args) { |conn,sp| ... }
+ *
+ * Open and close a transaction savepoint.  The savepoints name +nam+ may
+ * contain % directives that will be expanded by +args+.
+ */
+VALUE
+pgconn_subtransaction( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE sp, par, cmd, ya;
+
+    if (rb_scan_args( argc, argv, "1*", &sp, &par) > 1)
+        sp = rb_str_format(RARRAY_LEN(par), RARRAY_PTR(par), sp);
+    rb_str_freeze( sp);
+
+    cmd = rb_str_buf_new2( "savepoint ");
+    rb_str_buf_append( cmd, sp);
+    rb_str_buf_cat2( cmd, ";");
+    pg_pqexec( get_pgconn( self), RSTRING_PTR(cmd));
+
+    ya = rb_ary_new3( 2, self, sp);
+    return rb_rescue( yield_subtransaction, ya, rescue_subtransaction, ya);
+}
+
+/*
+ * call-seq:
+ *    conn.transaction_status()  ->  int
+ *
+ * returns one of the following statuses:
+ *
+ *   PQTRANS_IDLE    = 0 (connection idle)
+ *   PQTRANS_ACTIVE  = 1 (command in progress)
+ *   PQTRANS_INTRANS = 2 (idle, within transaction block)
+ *   PQTRANS_INERROR = 3 (idle, within failed transaction)
+ *   PQTRANS_UNKNOWN = 4 (cannot determine status)
+ */
+VALUE
+pgconn_transaction_status( obj)
+    VALUE obj;
+{
+    return INT2NUM( PQtransactionStatus( get_pgconn( obj)));
 }
 
 
@@ -1327,6 +1698,8 @@ pgconn_lounlink( obj, lo_oid)
 
 void init_pg_conn( void)
 {
+#define CONN_DEF( c) rb_define_const( rb_cPgConn, #c, INT2FIX( c))
+
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
     rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
@@ -1336,8 +1709,8 @@ void init_pg_conn( void)
     rb_define_singleton_method( rb_cPgConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
 
-    rb_define_const( rb_cPgConn, "CONNECTION_OK",  INT2FIX( CONNECTION_OK));
-    rb_define_const( rb_cPgConn, "CONNECTION_BAD", INT2FIX( CONNECTION_BAD));
+    CONN_DEF( CONNECTION_OK);
+    CONN_DEF( CONNECTION_BAD);
 
     rb_define_method( rb_cPgConn, "initialize", pgconn_init, -1);
     rb_define_method( rb_cPgConn, "close", pgconn_close, 0);
@@ -1355,6 +1728,7 @@ void init_pg_conn( void)
     rb_define_method( rb_cPgConn, "user", pgconn_user, 0);
     rb_define_method( rb_cPgConn, "status", pgconn_status, 0);
     rb_define_method( rb_cPgConn, "error", pgconn_error, 0);
+    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
     rb_define_method( rb_cPgConn, "socket", pgconn_socket, 0);
 
@@ -1373,6 +1747,9 @@ void init_pg_conn( void)
                                             pgconn_s_stringize, 1);
     rb_define_method( rb_cPgConn, "stringize",
                                             pgconn_s_stringize, 1);
+    rb_define_singleton_method( rb_cPgConn, "stringize_line",
+                                            pgconn_s_stringize_line, 1);
+    rb_define_method( rb_cPgConn, "stringize_line", pgconn_s_stringize_line, 1);
 
     rb_define_method( rb_cPgConn, "quote_bytea",
                                             pgconn_quote_bytea, 1);
@@ -1393,18 +1770,28 @@ void init_pg_conn( void)
     rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
     rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
     rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
-    rb_define_method( rb_cPgConn, "insert_table", pgconn_insert_table, 2);
 
+
+
+    CONN_DEF( PQTRANS_IDLE);
+    CONN_DEF( PQTRANS_ACTIVE);
+    CONN_DEF( PQTRANS_INTRANS);
+    CONN_DEF( PQTRANS_INERROR);
+    CONN_DEF( PQTRANS_UNKNOWN);
     rb_define_method( rb_cPgConn, "transaction", pgconn_transaction, -1);
     rb_define_method( rb_cPgConn, "subtransaction", pgconn_subtransaction, -1);
     rb_define_alias( rb_cPgConn, "savepoint", "subtransaction");
+    rb_define_method( rb_cPgConn, "transaction_status",
+                                                 pgconn_transaction_status, 0);
 
+
+
+    rb_define_method( rb_cPgConn, "insert_table", pgconn_insert_table, 2);
     rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
     rb_define_method( rb_cPgConn, "getline", pgconn_getline, 0);
     rb_define_method( rb_cPgConn, "endcopy", pgconn_endcopy, 0);
-    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
-    rb_define_method( rb_cPgConn, "transaction_status",
-                                                 pgconn_transaction_status, 0);
+
+
 
     rb_define_method( rb_cPgConn, "lo_import", pgconn_loimport, 1);
     rb_define_alias( rb_cPgConn, "loimport", "lo_import");
@@ -1417,8 +1804,18 @@ void init_pg_conn( void)
     rb_define_method( rb_cPgConn, "lo_open", pgconn_loopen, -1);
     rb_define_alias( rb_cPgConn, "loopen", "lo_open");
 
-    id_to_s        = rb_intern( "to_s");
     id_to_postgres = rb_intern( "to_postgres");
     id_iso8601     = rb_intern( "iso8601");
+    id_rows        = 0;
+    id_call        = 0;
+    id_on_notice   = 0;
+    id_gsub_bang   = rb_intern( "gsub!");
+
+    pg_escape_regex = rb_reg_new( "([\\t\\n\\\\])", 10, 0);
+    rb_global_variable( &pg_escape_regex);
+    pg_escape_str = rb_str_new( "\\\\\\1", 4);
+    rb_global_variable( &pg_escape_str);
+
+#undef CONN_DEF
 }
 
