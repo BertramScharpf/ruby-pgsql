@@ -32,7 +32,7 @@ pgrow_init( self, keys)
     VALUE self, keys;
 {
     VALUE len;
-    
+
     len = LONG2NUM( RARRAY_LEN( keys));
     rb_call_super( 1, &len);
     rb_ivar_set( self, id_keys, keys);

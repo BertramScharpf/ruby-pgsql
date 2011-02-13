@@ -26,10 +26,10 @@ static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
 static void  connstr_passwd( VALUE self, VALUE params);
 
-static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE klass);
+static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
 static VALUE pgconn_s_translate_results_set( VALUE self, VALUE fact);
 
-static VALUE pgconn_alloc( VALUE klass);
+static VALUE pgconn_alloc( VALUE cls);
 static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_close( VALUE obj);
 static VALUE pgconn_reset( VALUE obj);
@@ -92,6 +92,12 @@ static VALUE yield_subtransaction( VALUE obj);
 static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE obj);
 static VALUE pgconn_transaction_status( VALUE obj);
 
+static VALUE put_end( VALUE conn);
+static VALUE pgconn_copy_stdin( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_putline( VALUE self, VALUE str);
+static VALUE get_end( VALUE conn);
+static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
 static VALUE pgconn_loexport( VALUE obj, VALUE lo_oid, VALUE filename);
@@ -146,14 +152,14 @@ PGresult *pg_pqexec( PGconn *conn, const char *cmd)
  * the connection will be closed afterwards.
  */
 VALUE
-pgconn_s_connect( argc, argv, klass)
+pgconn_s_connect( argc, argv, cls)
     int argc;
     VALUE *argv;
-    VALUE klass;
+    VALUE cls;
 {
     VALUE pgconn;
 
-    pgconn = rb_class_new_instance( argc, argv, klass);
+    pgconn = rb_class_new_instance( argc, argv, cls);
     return rb_block_given_p() ?
         rb_ensure( rb_yield, pgconn, pgconn_close, pgconn) : pgconn;
 }
@@ -176,10 +182,10 @@ pgconn_s_translate_results_set( self, fact)
 
 
 VALUE
-pgconn_alloc( klass)
-    VALUE klass;
+pgconn_alloc( cls)
+    VALUE cls;
 {
-    return Data_Wrap_Struct( klass, 0, &PQfinish, NULL);
+    return Data_Wrap_Struct( cls, 0, &PQfinish, NULL);
 }
 
 int set_connect_params( st_data_t key, st_data_t val, st_data_t args)
@@ -1235,7 +1241,7 @@ pgconn_send( argc, argv, self)
         res = PQsendQueryParams( conn, RSTRING_PTR( command), len,
                 NULL, params_to_strings( self, params), NULL, NULL, 0);
     if (res <= 0)
-        pg_raise_conn( conn);
+        pg_raise_exec( conn);
     return rb_ensure( rb_yield, Qnil, clear_resultqueue, self);
 }
 
@@ -1525,7 +1531,6 @@ pgconn_subtransaction( argc, argv, self)
 
     if (rb_scan_args( argc, argv, "1*", &sp, &par) > 1)
         sp = rb_str_format(RARRAY_LEN(par), RARRAY_PTR(par), sp);
-    rb_str_freeze( sp);
 
     cmd = rb_str_buf_new2( "savepoint ");
     rb_str_buf_append( cmd, sp);
@@ -1553,6 +1558,206 @@ pgconn_transaction_status( obj)
     VALUE obj;
 {
     return INT2NUM( PQtransactionStatus( get_pgconn( obj)));
+}
+
+
+
+
+
+
+VALUE
+put_end( self)
+    VALUE self;
+{
+    PGconn *conn;
+    char *errm;
+    int r;
+
+    conn = get_pgconn( self);
+    errm = NIL_P( ruby_errinfo) ?
+            NULL :
+            RSTRING_PTR( rb_obj_as_string(ruby_errinfo));
+    while ((r = PQputCopyEnd( conn, errm)) == 0)
+        ;
+    if (r < 0)
+        pg_raise_exec( conn);
+    return Qnil;
+}
+
+/*
+ * call-seq:
+ *    conn.copy_stdin( sql, *bind_values) { |result| ... }   ->  nil
+ *
+ * Write lines into a +COPY+ command. See +stringize_line+ for how to build
+ * standard lines.
+ *
+ *   conn.copy_stdin "copy t from stdin;" do
+ *      ary = ...
+ *      l = stringize_line ary
+ *      conn.put l
+ *   end
+ *
+ * You may write a "\\." yourself if you like it.
+ */
+VALUE
+pgconn_copy_stdin( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE result;
+
+    result = exec_sql_statement( argc, argv, self);
+    rb_ensure( rb_yield, result, put_end, self);
+}
+
+/*
+ * call-seq:
+ *    conn.putline( str)         -> nil
+ *    conn.putline( str) { ... } -> nil
+ *
+ * Sends the string to the backend server.
+ * You have to open the stream with a +COPY+ command using +copy_stdin+.
+ *
+ * If +str+ doesn't end in a newline, one is appended.
+ *
+ * If the connection is in nonblocking mode the block will be called
+ * and its value will be returned.
+ */
+VALUE
+pgconn_putline( self, str)
+    VALUE self, str;
+{
+    PGconn *conn;
+    char *p;
+    int l;
+    int r;
+
+    Check_Type( str, T_STRING);
+    conn = get_pgconn( self);
+    p = RSTRING_PTR( str), l = RSTRING_LEN( str);
+    if (p[ l - 1] != '\n') {
+        VALUE t;
+
+        t = rb_str_new( p, l);
+        rb_str_buf_cat( t, "\n", 1);
+        p = RSTRING_PTR( t), l = RSTRING_LEN( t);
+    }
+    r = PQputCopyData( conn, p, l);
+    if (r < 0)
+        rb_exc_raise( pgreserror_new( PQgetResult( conn)));
+    else if (r == 0)
+        return rb_yield( Qnil);
+    return Qnil;
+}
+
+
+VALUE
+get_end( self)
+    VALUE self;
+{
+    PGconn *conn;
+    PGresult *res;
+    int stat;
+    char *b;
+    int l;
+
+    conn = get_pgconn( self);
+    for (;;) {
+        res = PQgetResult( conn);
+        stat = PQresultStatus( res);
+        if (stat != PGRES_COPY_OUT)
+            break;
+        l = PQgetCopyData( conn, &b, 0);
+        if (l <= 0 || b == NULL)
+            break;
+        PQfreemem( b);
+    }
+    pg_checkresult( conn, res);
+    return Qnil;
+}
+
+/*
+ * call-seq:
+ *    conn.copy_stdout( sql, *bind_values) { ... }   ->  nil
+ *
+ * Read lines from a +COPY+ command. See +stringize_line+ for how to build
+ * standard lines.
+ *
+ *   conn.copy_stdout "copy t from stdin;" do
+ *     l = conn.getline
+ *     ary = l.split /\t/
+ *     ary.map! { |x|
+ *       unless x == "\\N" then
+ *         x.gsub! /\\(.)/ do
+ *           case $1
+ *              when "t"  then "\t"
+ *              when "n"  then "\n"
+ *              when "\\" then "\\"
+ *           end
+ *         end
+ *       end
+ *     }
+ *     ...
+ *   end
+ */
+VALUE
+pgconn_copy_stdout( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE result;
+
+    result = exec_sql_statement( argc, argv, self);
+    rb_ensure( rb_yield, result, get_end, self);
+}
+
+/*
+ * call-seq:
+ *    conn.getline( async = nil)         -> str
+ *    conn.getline( async = nil) { ... } -> str
+ *
+ * Reads a line from the backend server after a +COPY+ command.
+ * Returns +nil+ for EOF.
+ *
+ * If async is +true+ then the block will be called and its value
+ * will be returned.
+ *
+ * Call this mehtod inside a block passed to +copy_stdout+. See
+ * there for an example.
+ */
+VALUE
+pgconn_getline( argc, argv, self)
+    int argc;
+    VALUE *argv;
+    VALUE self;
+{
+    VALUE as;
+    int async;
+    PGconn *conn;
+    char *b;
+    int r;
+
+    async = rb_scan_args( argc, argv, "01", &as) > 0 && !NIL_P( as) ? 1 : 0;
+
+    conn = get_pgconn( self);
+    r = PQgetCopyData( conn, &b, async);
+    if (r > 0) {
+        VALUE ret;
+
+        ret = rb_tainted_str_new( b, r);
+        PQfreemem( b);
+        return ret;
+    } else if (r == 0)
+        return rb_yield( Qnil);
+    else if (r == -1)
+        ;
+    else if (r == -2)
+        rb_exc_raise( pgreserror_new( PQgetResult( conn)));
+    else
+        pg_raise_exec( conn);
+    return Qnil;
 }
 
 
@@ -1698,8 +1903,6 @@ pgconn_lounlink( obj, lo_oid)
 
 void init_pg_conn( void)
 {
-#define CONN_DEF( c) rb_define_const( rb_cPgConn, #c, INT2FIX( c))
-
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
     rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
@@ -1709,8 +1912,10 @@ void init_pg_conn( void)
     rb_define_singleton_method( rb_cPgConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
 
-    CONN_DEF( CONNECTION_OK);
-    CONN_DEF( CONNECTION_BAD);
+#define CONN_DEF( c) rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
+    CONN_DEF( OK);
+    CONN_DEF( BAD);
+#undef CONN_DEF
 
     rb_define_method( rb_cPgConn, "initialize", pgconn_init, -1);
     rb_define_method( rb_cPgConn, "close", pgconn_close, 0);
@@ -1771,27 +1976,25 @@ void init_pg_conn( void)
     rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
     rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
 
-
-
-    CONN_DEF( PQTRANS_IDLE);
-    CONN_DEF( PQTRANS_ACTIVE);
-    CONN_DEF( PQTRANS_INTRANS);
-    CONN_DEF( PQTRANS_INERROR);
-    CONN_DEF( PQTRANS_UNKNOWN);
+#define TRANS_DEF( c) rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
+    TRANS_DEF( IDLE);
+    TRANS_DEF( ACTIVE);
+    TRANS_DEF( INTRANS);
+    TRANS_DEF( INERROR);
+    TRANS_DEF( UNKNOWN);
+#undef TRANS_DEF
     rb_define_method( rb_cPgConn, "transaction", pgconn_transaction, -1);
     rb_define_method( rb_cPgConn, "subtransaction", pgconn_subtransaction, -1);
     rb_define_alias( rb_cPgConn, "savepoint", "subtransaction");
     rb_define_method( rb_cPgConn, "transaction_status",
                                                  pgconn_transaction_status, 0);
 
-
-
-    rb_define_method( rb_cPgConn, "insert_table", pgconn_insert_table, 2);
+    rb_define_method( rb_cPgConn, "copy_stdin", pgconn_copy_stdin, -1);
     rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
-    rb_define_method( rb_cPgConn, "getline", pgconn_getline, 0);
-    rb_define_method( rb_cPgConn, "endcopy", pgconn_endcopy, 0);
-
-
+    rb_define_alias( rb_cPgConn, "put", "putline");
+    rb_define_method( rb_cPgConn, "copy_stdout", pgconn_copy_stdout, -1);
+    rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
+    rb_define_alias( rb_cPgConn, "get", "getline");
 
     rb_define_method( rb_cPgConn, "lo_import", pgconn_loimport, 1);
     rb_define_alias( rb_cPgConn, "loimport", "lo_import");
@@ -1811,11 +2014,9 @@ void init_pg_conn( void)
     id_on_notice   = 0;
     id_gsub_bang   = rb_intern( "gsub!");
 
-    pg_escape_regex = rb_reg_new( "([\\t\\n\\\\])", 10, 0);
+    pg_escape_regex = rb_reg_new( "([\\b\\f\\n\\r\\t\\v\\\\])", 18, 0);
     rb_global_variable( &pg_escape_regex);
     pg_escape_str = rb_str_new( "\\\\\\1", 4);
     rb_global_variable( &pg_escape_str);
-
-#undef CONN_DEF
 }
 

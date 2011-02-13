@@ -26,7 +26,7 @@ static VALUE pgreserror_primary( VALUE self);
 static VALUE pgreserror_detail( VALUE self);
 static VALUE pgreserror_hint( VALUE self);
 
-static VALUE pgresult_alloc( VALUE klass);
+static VALUE pgresult_alloc( VALUE cls);
 static VALUE pgresult_status( VALUE obj);
 static VALUE pgresult_aref( int argc, VALUE *argv, VALUE obj);
 static VALUE pgresult_fields( VALUE obj);
@@ -55,14 +55,14 @@ pg_checkresult( PGconn *conn, PGresult *result)
 {
     switch (PQresultStatus( result)) {
         case PGRES_EMPTY_QUERY:
-        case PGRES_TUPLES_OK:
         case PGRES_COMMAND_OK:
+        case PGRES_TUPLES_OK:
         case PGRES_COPY_OUT:
         case PGRES_COPY_IN:
             break;
         case PGRES_BAD_RESPONSE:
-        case PGRES_FATAL_ERROR:
         case PGRES_NONFATAL_ERROR:
+        case PGRES_FATAL_ERROR:
             rb_exc_raise( pgreserror_new( result));
             break;
         default:
@@ -212,10 +212,10 @@ pgreserror_hint( self)
 
 
 VALUE
-pgresult_alloc( klass)
-    VALUE klass;
+pgresult_alloc( cls)
+    VALUE cls;
 {
-    return Data_Wrap_Struct( klass, 0, &PQclear, NULL);
+    return Data_Wrap_Struct( cls, 0, &PQclear, NULL);
 }
 
 
@@ -598,7 +598,7 @@ pgresult_getvalue( obj, tup_num, field_num)
     PGresult *result;
 
     result = get_pgresult( obj);
-    return fetch_pgresult( result, 
+    return fetch_pgresult( result,
         get_tuple_number( result, tup_num),
         get_field_number( result, field_num));
 }
