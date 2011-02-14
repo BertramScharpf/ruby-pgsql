@@ -5,8 +5,6 @@
 
 #include "row.h"
 
-#include "pgsql.h"
-
 
 static ID id_keys;
 static ID id_arity;
@@ -22,11 +20,16 @@ static VALUE pgrow_each_value( VALUE self);
 static VALUE pgrow_to_hash( VALUE self);
 
 
-
 VALUE rb_cPgRow;
 
 
-
+/*
+ * call-seq:
+ *   Rg::Row.new ary  -> row
+ *
+ * Create an empty row with the field names +ary+. THis isn't very useful
+ * except internally for Pg::Result when returning rows.
+ */
 VALUE
 pgrow_init( self, keys)
     VALUE self, keys;
@@ -179,8 +182,13 @@ pgrow_to_hash( self)
  */
 
 
-void init_pg_row( void)
+void
+Init_pgsql_row( void)
 {
+#if 0
+    rb_mPg = rb_define_module( "Pg");
+#endif
+
     rb_cPgRow = rb_define_class_under( rb_mPg, "Row", rb_cArray);
     rb_define_method( rb_cPgRow, "initialize", pgrow_init, 1);
     rb_define_method( rb_cPgRow, "[]", pgrow_aref, -1);

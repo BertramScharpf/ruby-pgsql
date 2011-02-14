@@ -10,8 +10,11 @@
 
 #include "row.h"
 #include "conn.h"
-#include "pgsql.h"
 
+
+VALUE rb_cBigDecimal;
+VALUE rb_cDate;
+VALUE rb_cDateTime;
 
 static ID id_parse;
 static ID id_index;
@@ -19,12 +22,6 @@ static ID id_index;
 
 static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
-
-static VALUE pgreserror_status( VALUE obj);
-static VALUE pgreserror_sqlst( VALUE self);
-static VALUE pgreserror_primary( VALUE self);
-static VALUE pgreserror_detail( VALUE self);
-static VALUE pgreserror_hint( VALUE self);
 
 static VALUE pgresult_alloc( VALUE cls);
 static VALUE pgresult_status( VALUE obj);
@@ -46,8 +43,15 @@ static VALUE pgresult_cmdstatus( VALUE obj);
 static VALUE pgresult_oid( VALUE obj);
 
 
-VALUE rb_ePgResError;
-VALUE rb_cPgResult;
+static VALUE pgreserror_status( VALUE obj);
+static VALUE pgreserror_sqlst( VALUE self);
+static VALUE pgreserror_primary( VALUE self);
+static VALUE pgreserror_detail( VALUE self);
+static VALUE pgreserror_hint( VALUE self);
+
+
+static VALUE rb_cPgResult;
+static VALUE rb_ePgResError;
 
 
 void
@@ -744,16 +748,27 @@ pgresult_clear( obj)
  * the result for better memory performance.
  */
 
-void init_pg_result( void)
+/********************************************************************
+ *
+ * Document-class: Pg::Result::Error
+ *
+ * The information in a result that is an error.
+ */
+
+void
+Init_pgsql_result( void)
 {
-    rb_ePgResError = rb_define_class_under( rb_mPg, "ResultError", rb_ePgError);
-    rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
-    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
-    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
-    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
-    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
-    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
-    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
+#if 0
+    rb_mPg = rb_define_module( "Pg");
+#endif
+
+    rb_require( "bigdecimal");
+    rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
+
+    rb_require( "date");
+    rb_require( "time");
+    rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
+    rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
     rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
@@ -793,6 +808,15 @@ void init_pg_result( void)
     rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
     rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
     rb_define_alias( rb_cPgResult, "close", "clear");
+
+    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
+    rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
+    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
+    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
+    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
+    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
+    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
+    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
 
     id_parse = rb_intern( "parse");
     id_index = rb_intern( "index");

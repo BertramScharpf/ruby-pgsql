@@ -1,7 +1,7 @@
 /*
  *  large.c  --  Pg large objects
+ *
  */
-
 
 #include "large.h"
 
@@ -34,7 +34,7 @@ static VALUE pglarge_tell( VALUE self);
 static VALUE pglarge_size( VALUE self);
 
 
-VALUE rb_cPgLarge;
+static VALUE rb_cPgLarge;
 
 
 
@@ -362,18 +362,22 @@ pglarge_size( self)
 }
 
 
-
 /********************************************************************
  *
  * Document-class: Pg::Large
  *
  * The class to access large objects.
- * An instance of this class is created as the  result of
+ * An instance of this class is created as the result of
  * Pg::Conn#lo_import, Pg::Conn#lo_create, and Pg::Conn#lo_open.
  */
 
-void init_pg_large( void)
+void
+Init_pgsql_large( void)
 {
+#if 0
+    rb_mPg = rb_define_module( "Pg");
+#endif
+
     rb_cPgLarge = rb_define_class_under( rb_mPg, "Large", rb_cObject);
     rb_define_method( rb_cPgLarge, "oid", pglarge_oid, 0);
     rb_define_method( rb_cPgLarge, "close", pglarge_close, 0);

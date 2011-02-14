@@ -1,0 +1,44 @@
+                         _ 
+   _ __   __ _ ___  __ _| |
+  | '_ \ / _` / __|/ _` | |
+  | |_) | (_| \__ \ (_| | |
+  | .__/ \__, |___/\__, |_|
+  |_|    |___/        |_|  
+
+== Description
+
+A PostgreSQL library that was carefully designed.
+
+== Features
+
+* Connection parameters from hash
+* Query parameters
+* Asynchronous queries
+* Quick query of single lines or values
+* Full PostgreSQL quoting support
+* Built-in transactions and savepoints by Ruby blocks
+* Lage objects
+
+== Example
+
+Write something like this:
+
+  require "pgsql"
+
+  Pg::Conn.open :dbname => "test1", :user => "jdoe" do |conn|
+    conn.exec "select * from mytable;" do |result|
+      result.each { |row|
+          l = row.join ", "
+              ...
+      }
+    end
+    cmd = <<-ENDSQL
+      select * from mytable where num=$1::integer;
+    ENDSQL
+    conn.query cmd, 42 do |row|
+      l = row.join ", "
+          ...
+    end
+    ...
+  end
+

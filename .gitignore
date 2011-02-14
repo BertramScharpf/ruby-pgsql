@@ -12,3 +12,7 @@
 
 pgsql-*.gem
 
+
+lib/test
+lib/test.*
+

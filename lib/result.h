@@ -9,9 +9,9 @@
 
 #include <libpq-fe.h>
 
-
-extern VALUE rb_ePgResError;
-extern VALUE rb_cPgResult;
+extern VALUE rb_cBigDecimal;
+extern VALUE rb_cDate;
+extern VALUE rb_cDateTime;
 
 extern VALUE pgreserror_new( PGresult *ptr);
 
@@ -31,7 +31,7 @@ extern VALUE fetch_pgrow( PGresult *result, int row_num, VALUE fields);
 extern VALUE pgresult_each( VALUE self);
 
 
-extern void init_pg_result( void);
+extern void Init_pgsql_result( void);
 
 #endif
 

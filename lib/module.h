@@ -20,19 +20,12 @@
 #include "undef.h"
 
 
-#define VERSION "1.3"
-
+extern ID id_new;
 
 extern VALUE rb_mPg;
 extern VALUE rb_ePgError;
-extern VALUE rb_ePgExecError;
-extern VALUE rb_ePgConnError;
 
-extern void pg_raise_exec( PGconn *conn);
-extern void pg_raise_conn( PGconn *conn);
-
-extern void init_pg_module( void);
-
+extern void Init_pgsql( void);
 
 #endif
 

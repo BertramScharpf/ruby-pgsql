@@ -1,5 +1,5 @@
 /*
- *  conn.h  --  Pg connection
+ *  conn.h  --  PostgreSQL connection
  */
 
 #ifndef __CONN_H
@@ -7,18 +7,9 @@
 
 #include "module.h"
 
-
-extern VALUE rb_cPgConn;
-
 extern int translate_results;
 
-/*----------------------------------------------------------------*/
-extern PGconn *get_pgconn( VALUE obj);
-extern PGresult *pg_pqexec( PGconn *conn, const char *cmd);
-/*----------------------------------------------------------------*/
-
-extern void init_pg_conn( void);
-
+extern void Init_pgsql_conn( void);
 
 #endif
 

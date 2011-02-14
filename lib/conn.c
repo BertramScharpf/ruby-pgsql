@@ -1,5 +1,5 @@
 /*
- *  conn.c  --  Pg connection
+ *  conn.c  --  PostgreSQL connection
  */
 
 
@@ -8,7 +8,6 @@
 #include <st.h>
 #include <intern.h>
 
-#include "pgsql.h"
 #include "result.h"
 
 
@@ -22,12 +21,15 @@ static ID id_gsub_bang;
 static VALUE pg_escape_regex;
 static VALUE pg_escape_str;
 
-static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
-static void  connstr_to_hash( VALUE params, VALUE str);
-static void  connstr_passwd( VALUE self, VALUE params);
+static PGconn *get_pgconn( VALUE obj);
+static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
 
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
 static VALUE pgconn_s_translate_results_set( VALUE self, VALUE fact);
+
+static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
+static void  connstr_to_hash( VALUE params, VALUE str);
+static void  connstr_passwd( VALUE self, VALUE params);
 
 static VALUE pgconn_alloc( VALUE cls);
 static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
@@ -65,6 +67,7 @@ static VALUE quote_array( VALUE self, VALUE result, VALUE ary);
 static VALUE pgconn_quote( VALUE self, VALUE value);
 static void  quote_all( VALUE self, VALUE ary, VALUE res);
 static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
 
 static VALUE pgconn_client_encoding( VALUE obj);
 static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
@@ -106,11 +109,14 @@ static VALUE pgconn_locreate( int argc, VALUE *argv, VALUE obj);
 static VALUE pgconn_loopen( int argc, VALUE *argv, VALUE obj);
 
 
+static void pg_raise_pgconn( PGconn *conn);
+
+
 static const char *str_NULL = "NULL";
 
+static VALUE rb_cPgConn;
+static VALUE rb_ePgConnError;
 
-
-VALUE rb_cPgConn;
 
 int translate_results = 1;
 
@@ -133,7 +139,7 @@ PGresult *pg_pqexec( PGconn *conn, const char *cmd)
 
     result = PQexec( conn, cmd);
     if (result == NULL)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     pg_checkresult( conn, result);
     return result;
 }
@@ -181,13 +187,6 @@ pgconn_s_translate_results_set( self, fact)
 }
 
 
-VALUE
-pgconn_alloc( cls)
-    VALUE cls;
-{
-    return Data_Wrap_Struct( cls, 0, &PQfinish, NULL);
-}
-
 int set_connect_params( st_data_t key, st_data_t val, st_data_t args)
 {
     const char ***ptrs = (const char ***)args;
@@ -197,9 +196,6 @@ int set_connect_params( st_data_t key, st_data_t val, st_data_t args)
     v = (VALUE) val;
     if (!NIL_P( v)) {
         switch(TYPE( k)) {
-          case T_SYMBOL:
-            *(ptrs[ 0]) = rb_id2name( SYM2ID( k));
-            break;
           case T_STRING:
             *(ptrs[ 0]) = StringValueCStr( k);
             break;
@@ -277,6 +273,14 @@ void connstr_passwd( VALUE self, VALUE params)
     }
 }
 
+
+VALUE
+pgconn_alloc( cls)
+    VALUE cls;
+{
+    return Data_Wrap_Struct( cls, 0, &PQfinish, NULL);
+}
+
 /*
  * Document-method: new
  *
@@ -340,7 +344,7 @@ pgconn_init( argc, argv, self)
 
     conn = PQconnectdbParams( keywords, values, 0);
     if (PQstatus( conn) == CONNECTION_BAD)
-        pg_raise_conn( conn);
+        rb_raise( rb_ePgError, PQerrorMessage( conn));
     Check_Type( self, T_DATA);
     DATA_PTR(self) = conn;
     return self;
@@ -538,7 +542,7 @@ notice_receiver( self, result)
  * call-seq:
  *   conn.on_notice { |message| ... }
  *
- * This method yields a PG::ResultError object in case a nonfatal exception
+ * This method yields a PG::Result::Error object in case a nonfatal exception
  * was raised.
  *
  * Here's an example:
@@ -968,7 +972,7 @@ quote_array( self, result, ary)
 
 /*
  * call-seq:
- *   Pg::Conn.quote( obj) -> str
+ *   conn.quote( obj) -> str
  *
  * This methods makes a PostgreSQL constant out of everything.  You may mention
  * any result in a statement passed to Conn#exec.
@@ -1066,6 +1070,13 @@ void quote_all( self, ary, res)
     }
 }
 
+/*
+ * call-seq:
+ *   conn.quote_all( *args) -> str
+ *
+ * Does a #quote for every argument and pastes the results
+ * together with comma.
+ */
 VALUE pgconn_quote_all( argc, argv, self)
     int argc;
     VALUE *argv;
@@ -1081,12 +1092,35 @@ VALUE pgconn_quote_all( argc, argv, self)
 }
 
 
+/*
+ * call-seq:
+ *    conn.quote_identifier() -> str
+ *
+ * Put double quotes around an identifier containing non-letters
+ * or upper case.
+ */
+VALUE
+pgconn_quote_identifier( self, str)
+    VALUE self, str;
+{
+    char *p;
+    VALUE result;
+
+    Check_Type( str, T_STRING);
+    p = PQescapeIdentifier( get_pgconn( self),
+                    RSTRING_PTR( str), RSTRING_LEN( str));
+    result = rb_str_new2( p);
+    PQfreemem( p);
+    OBJ_INFECT( result, str);
+    return result;
+}
+
 
 
 
 /*
  * call-seq:
- *    conn.client_encoding() -> String
+ *    conn.client_encoding() -> str
  *
  * Returns the client encoding as a String.
  */
@@ -1101,9 +1135,9 @@ pgconn_client_encoding( obj)
 
 /*
  * call-seq:
- *    conn.set_client_encoding( encoding )
+ *    conn.set_client_encoding( encoding)
  *
- * Sets the client encoding to the _encoding_ String.
+ * Sets the client encoding to the +encoding+ string.
  */
 VALUE
 pgconn_set_client_encoding( obj, str)
@@ -1158,7 +1192,7 @@ exec_sql_statement( argc, argv, self)
         xfree( v);
     }
     if (result == NULL)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     pg_checkresult( conn, result);
     return pgresult_new( conn, result);
 }
@@ -1252,7 +1286,7 @@ pgconn_send( argc, argv, self)
         xfree( v);
     }
     if (res <= 0)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     return rb_ensure( rb_yield, Qnil, clear_resultqueue, self);
 }
 
@@ -1276,7 +1310,7 @@ pgconn_fetch( obj)
 
     conn = get_pgconn( obj);
     if (PQconsumeInput( conn) == 0)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     if (PQisBusy( conn) > 0)
         return Qnil;
     result = PQgetResult( conn);
@@ -1420,7 +1454,7 @@ pgconn_get_notify( self)
 
     conn = get_pgconn( self);
     if (PQconsumeInput( conn) == 0)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     notify = PQnotifies( conn);
     if (notify == NULL)
         return Qnil;
@@ -1591,7 +1625,7 @@ put_end( self)
     while ((r = PQputCopyEnd( conn, errm)) == 0)
         ;
     if (r < 0)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     return Qnil;
 }
 
@@ -1767,7 +1801,7 @@ pgconn_getline( argc, argv, self)
     else if (r == -2)
         rb_exc_raise( pgreserror_new( PQgetResult( conn)));
     else
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     return Qnil;
 }
 
@@ -1793,7 +1827,7 @@ pgconn_loimport( obj, filename)
     conn = get_pgconn( obj);
     lo_oid = lo_import( conn, RSTRING_PTR( filename));
     if (lo_oid == 0)
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     return INT2NUM( lo_oid);
 }
 
@@ -1818,7 +1852,7 @@ pgconn_loexport( obj, lo_oid, filename)
 
     conn = get_pgconn( obj);
     if (!lo_export( conn, oid, RSTRING_PTR( filename)))
-        pg_raise_exec( conn);
+        pg_raise_pgconn( conn);
     return Qnil;
 }
 
@@ -1896,24 +1930,43 @@ pgconn_lounlink( obj, lo_oid)
 
 
 
+void pg_raise_pgconn( PGconn *conn)
+{
+    rb_raise( rb_ePgConnError, PQerrorMessage( conn));
+}
+
+
+
 /********************************************************************
  *
  * Document-class: Pg::Conn
  *
- * The class to access PostgreSQL database.
+ * The class to access a PostgreSQL database.
  *
- * For example, to send query to the database on the localhost:
+ * For example, to send a query to the database on the localhost:
  *
  *    require "pgsql"
- *    conn = Pg::Conn.open "dbname" => "test1"
+ *    conn = Pg::Conn.open :dbname => "test1"
  *    res = conn.exec "select * from mytable;"
  *
  * See the Pg::Result class for information on working with the results of a
  * query.
  */
 
-void init_pg_conn( void)
+/********************************************************************
+ *
+ * Document-class: Pg::Conn::Error
+ *
+ * Error while querying from a PostgreSQL connection.
+ */
+
+void
+Init_pgsql_conn( void)
 {
+#if 0
+    rb_mPg = rb_define_module( "Pg");
+#endif
+
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
     rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
@@ -1973,6 +2026,9 @@ void init_pg_conn( void)
     rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
     rb_define_alias( rb_cPgConn, "q", "quote_all");
 
+    rb_define_method( rb_cPgConn, "quote_identifier", pgconn_quote_identifier, 1);
+    rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
+
     rb_define_method( rb_cPgConn, "client_encoding", pgconn_client_encoding, 0);
     rb_define_method( rb_cPgConn, "set_client_encoding",
                                                pgconn_set_client_encoding, 1);
@@ -2017,6 +2073,8 @@ void init_pg_conn( void)
     rb_define_alias( rb_cPgConn, "locreate", "lo_create");
     rb_define_method( rb_cPgConn, "lo_open", pgconn_loopen, -1);
     rb_define_alias( rb_cPgConn, "loopen", "lo_open");
+
+    rb_ePgConnError = rb_define_class_under( rb_cPgConn, "Error", rb_ePgError);
 
     id_to_postgres = rb_intern( "to_postgres");
     id_iso8601     = rb_intern( "iso8601");

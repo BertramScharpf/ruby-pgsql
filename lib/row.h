@@ -10,7 +10,7 @@
 
 extern VALUE rb_cPgRow;
 
-extern void init_pg_row( void);
+extern void Init_pgsql_row( void);
 
 #endif
 

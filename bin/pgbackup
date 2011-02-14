@@ -11,11 +11,25 @@ class Backup < Pg::Conn
 
   # This was successfully tested with:
   ARCHIVE_COMMAND =
-    'rsync -ar %p rsync://backupserver/backupdir/pg-myhost/XLOG/%f'
+    "rsync -ar %p rsync://backupserver/backupdir/pg-myhost/XLOG/%f"
   # XLOG must exist in the backup directory. No error will be reported.
 
-  def initialize db = nil, user = nil, pw = nil
-    super nil, nil, nil, nil, db, user, pw
+  class <<self
+    def open *args
+      b = new *args
+      begin
+        yield b
+      ensure
+        b.finish
+      end
+    end
+    def run *args
+      open *args do |b| b.run end
+    end
+  end
+
+  def initialize *args
+    super *args
     exec "select pg_start_backup('pgsql-auto');"
   end
 
@@ -34,8 +48,7 @@ class Backup < Pg::Conn
     ENDSQL
     [ ["@CLUSTER", datadir], *tblsp].each { |(nam,dir)|
       # We rely on the fact that Postgresql removed all trailing slashes.
-      a = arch_cmd.dup
-      a.gsub! /%(.)/ do
+      a = arch_cmd.gsub /%(.)/ do
         case $1
           when "p" then dir
           when "f" then ""
@@ -46,22 +59,6 @@ class Backup < Pg::Conn
       system a
       raise RuntimeError, "#{a} => #$?" unless $?.success?
     }
-  end
-
-  class <<self
-    def open db = nil, user = nil, pw = nil
-      b = new db, user, pw
-      begin
-        yield b
-      ensure
-        b.finish
-      end
-    end
-    def run db = nil, user = nil, pw = nil
-      open db, user, pw do |b|
-        b.run
-      end
-    end
   end
 
 end
