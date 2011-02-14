@@ -1125,7 +1125,7 @@ const char **params_to_strings( conn, params)
 
     ptr = RARRAY_PTR( params);
     len = RARRAY_LEN( params);
-    values = ALLOCA_N( const char *, len);
+    values = ALLOC_N( const char *, len);
     for (v = values; len; v++, ptr++, len--)
         *v = *ptr == Qnil ? NULL
                          : RSTRING_PTR( pgconn_s_stringize( conn, *ptr));
@@ -1147,10 +1147,16 @@ exec_sql_statement( argc, argv, self)
     rb_scan_args( argc, argv, "1*", &command, &params);
     Check_Type( command, T_STRING);
     len = RARRAY_LEN( params);
-    result = len <= 0 ?
-        PQexec( conn, RSTRING_PTR( command)) :
-        PQexecParams( conn, RSTRING_PTR( command), len,
-                        NULL, params_to_strings( self, params), NULL, NULL, 0);
+    if (len <= 0)
+        result = PQexec( conn, RSTRING_PTR( command));
+    else {
+        const char **v;
+
+        v = params_to_strings( self, params);
+        result = PQexecParams( conn, RSTRING_PTR( command), len,
+                               NULL, v, NULL, NULL, 0);
+        xfree( v);
+    }
     if (result == NULL)
         pg_raise_exec( conn);
     pg_checkresult( conn, result);
@@ -1237,9 +1243,14 @@ pgconn_send( argc, argv, self)
     conn = get_pgconn( self);
     if (len <= 0)
         res = PQsendQuery( conn, RSTRING_PTR( command));
-    else
+    else {
+        const char **v;
+
+        v = params_to_strings( self, params);
         res = PQsendQueryParams( conn, RSTRING_PTR( command), len,
-                NULL, params_to_strings( self, params), NULL, NULL, 0);
+                                 NULL, v, NULL, NULL, 0);
+        xfree( v);
+    }
     if (res <= 0)
         pg_raise_exec( conn);
     return rb_ensure( rb_yield, Qnil, clear_resultqueue, self);

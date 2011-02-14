@@ -239,7 +239,7 @@ pglarge_read( argc, argv, self)
     if (len < 0)
         rb_raise( rb_ePgError, "negative length %d given", len);
 
-    buf = ALLOC_N( char, len);
+    buf = ALLOCA_N( char, len);
     siz = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, len);
     if (siz < 0)
         rb_raise( rb_ePgError, "error while reading");
