@@ -299,8 +299,7 @@ pglarge_write( self, buffer)
     PGlarge *pglarge;
     int n;
 
-    Check_Type( buffer, T_STRING);
-
+    StringValue( buffer);
     if (RSTRING_LEN( buffer) < 0)
         rb_raise( rb_ePgError, "write buffer zero string");
 

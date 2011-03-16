@@ -133,7 +133,10 @@ get_pgconn( obj)
     return conn;
 }
 
-PGresult *pg_pqexec( PGconn *conn, const char *cmd)
+PGresult *
+pg_pqexec( conn, cmd)
+    PGconn *conn;
+    const char *cmd;
 {
     PGresult *result;
 
@@ -232,13 +235,14 @@ static const char re_connstr[] =
 
 void connstr_to_hash( VALUE params, VALUE str)
 {
-    VALUE re, match;
+    VALUE re, match, m;
 
     re = rb_reg_new( re_connstr, sizeof re_connstr - 1, 0);
     if (RTEST( rb_reg_match( re, str))) {
         match = rb_backref_get();
-#define ADD_TO_RES( key, n) rb_hash_aset( params, \
-            ID2SYM( rb_intern( key)), rb_reg_nth_match( n, match))
+#define ADD_TO_RES( key, n) \
+    m = rb_reg_nth_match( n, match); \
+    if (!NIL_P( m)) rb_hash_aset( params, ID2SYM( rb_intern( key)), m)
         ADD_TO_RES( KEY_USER,     1);
         ADD_TO_RES( KEY_PASSWORD, 2);
         ADD_TO_RES( KEY_HOST,     3);
@@ -325,8 +329,11 @@ pgconn_init( argc, argv, self)
         if (TYPE( str) == T_STRING) {
             if (NIL_P( params))
                 params = rb_hash_new();
-            else
+            else {
+                params = rb_check_convert_type( params,
+                                                T_HASH, "Hash", "to_hash");
                 params = rb_obj_dup( params);
+            }
             connstr_to_hash( params, str);
         } else
             params = str;
@@ -609,7 +616,9 @@ pgconn_trace( obj, port)
 {
     OpenFile* fp;
 
-    Check_Type( port, T_FILE);
+    if (TYPE( port) == T_FILE)
+        rb_raise( rb_eArgError, "Not an IO object: %s",
+                                StringValueCStr( port));
     GetOpenFile( port, fp);
     PQtrace( get_pgconn( obj), rb_io_stdio_file( fp));
     return obj;
@@ -659,7 +668,7 @@ pgconn_escape_bytea( self, str)
     char nib[ 3];
     VALUE ret;
 
-    Check_Type( str, T_STRING);
+    StringValue( str);
     ret = rb_str_buf_new2( "\\x");
     for (s = (unsigned char *) RSTRING_PTR( str), l = RSTRING_LEN( str); l;
                             ++s, --l) {
@@ -692,7 +701,7 @@ pgconn_unescape_bytea( self, str)
 {
     VALUE ret;
 
-    Check_Type( str, T_STRING);
+    StringValue( str);
     ret = string_unescape_bytea( RSTRING_PTR( str));
     OBJ_INFECT( ret, str);
     return ret;
@@ -846,7 +855,7 @@ pgconn_s_stringize( self, obj)
                     result = rb_obj_as_string( obj);
                 else if   (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
-                    Check_Type( result, T_STRING);
+                    StringValue( result);
                     OBJ_INFECT( result, obj);
                 } else
                     result = rb_obj_as_string( obj);
@@ -866,18 +875,18 @@ pgconn_s_stringize( self, obj)
 VALUE pgconn_s_stringize_line( self, ary)
     VALUE self, ary;
 {
-    VALUE *a;
+    VALUE a;
+    VALUE *p;
     int l;
     VALUE ret, s;
 
-    Check_Type( ary, T_ARRAY);
-
+    a = rb_check_convert_type( ary, T_ARRAY, "Array", "to_ary");
     ret = rb_str_new( NULL, 0);
-    for (l = RARRAY_LEN( ary), a = RARRAY_PTR( ary); l; ++a) {
-        if (NIL_P( *a))
+    for (l = RARRAY_LEN( a), p = RARRAY_PTR( a); l; ++p) {
+        if (NIL_P( *p))
             rb_str_cat( ret, "\\N", 2);
         else {
-            s = pgconn_s_stringize( self, *a);
+            s = pgconn_s_stringize( self, *p);
             rb_funcall( s, id_gsub_bang, 2, pg_escape_regex, pg_escape_str);
             rb_str_cat( ret, RSTRING_PTR( s), RSTRING_LEN( s));
         }
@@ -920,7 +929,7 @@ pgconn_quote_bytea( self, str)
     size_t l;
     VALUE ret;
 
-    Check_Type( str, T_STRING);
+    StringValue( str);
     t = (char *) PQescapeByteaConn( get_pgconn( self),
             (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
     ret = rb_str_buf_new2( " E'");
@@ -1035,7 +1044,7 @@ pgconn_quote( self, obj)
                     type = "timestamptz";
                 } else if (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
-                    Check_Type( result, T_STRING);
+                    StringValue( result);
                     type = NULL;
                 } else {
                     result = rb_obj_as_string( obj);
@@ -1106,7 +1115,7 @@ pgconn_quote_identifier( self, str)
     char *p;
     VALUE result;
 
-    Check_Type( str, T_STRING);
+    StringValue( str);
     p = PQescapeIdentifier( get_pgconn( self),
                     RSTRING_PTR( str), RSTRING_LEN( str));
     result = rb_str_new2( p);
@@ -1143,7 +1152,7 @@ VALUE
 pgconn_set_client_encoding( obj, str)
     VALUE obj, str;
 {
-    Check_Type( str, T_STRING);
+    StringValue( str);
     if ((PQsetClientEncoding( get_pgconn( obj), RSTRING_PTR( str))) == -1)
         rb_raise( rb_ePgError, "Invalid encoding name %s", str);
     return Qnil;
@@ -1179,7 +1188,7 @@ exec_sql_statement( argc, argv, self)
 
     conn = get_pgconn( self);
     rb_scan_args( argc, argv, "1*", &command, &params);
-    Check_Type( command, T_STRING);
+    StringValue( command);
     len = RARRAY_LEN( params);
     if (len <= 0)
         result = PQexec( conn, RSTRING_PTR( command));
@@ -1272,7 +1281,7 @@ pgconn_send( argc, argv, self)
     int len;
 
     rb_scan_args( argc, argv, "1*", &command, &params);
-    Check_Type( command, T_STRING);
+    StringValue( command);
     len = RARRAY_LEN( params);
     conn = get_pgconn( self);
     if (len <= 0)
@@ -1678,7 +1687,7 @@ pgconn_putline( self, str)
     int l;
     int r;
 
-    Check_Type( str, T_STRING);
+    StringValue( str);
     conn = get_pgconn( self);
     p = RSTRING_PTR( str), l = RSTRING_LEN( str);
     if (p[ l - 1] != '\n') {
@@ -1726,8 +1735,8 @@ get_end( self)
  * call-seq:
  *    conn.copy_stdout( sql, *bind_values) { ... }   ->  nil
  *
- * Read lines from a +COPY+ command. See +stringize_line+ for how to build
- * standard lines.
+ * Read lines from a +COPY+ command.  The form of the lines depends
+ * on the statement's parameters.
  *
  *   conn.copy_stdout "copy t from stdin;" do
  *     l = conn.getline
@@ -1822,10 +1831,8 @@ pgconn_loimport( obj, filename)
     Oid lo_oid;
     PGconn *conn;
 
-    Check_Type( filename, T_STRING);
-
     conn = get_pgconn( obj);
-    lo_oid = lo_import( conn, RSTRING_PTR( filename));
+    lo_oid = lo_import( conn, StringValueCStr( filename));
     if (lo_oid == 0)
         pg_raise_pgconn( conn);
     return INT2NUM( lo_oid);
@@ -1844,14 +1851,12 @@ pgconn_loexport( obj, lo_oid, filename)
     int oid;
     PGconn *conn;
 
-    Check_Type( filename, T_STRING);
-
     oid = NUM2INT( lo_oid);
     if (oid < 0)
         rb_raise( rb_ePgError, "invalid large object oid %d", oid);
 
     conn = get_pgconn( obj);
-    if (!lo_export( conn, oid, RSTRING_PTR( filename)))
+    if (!lo_export( conn, oid, StringValueCStr( filename)))
         pg_raise_pgconn( conn);
     return Qnil;
 }

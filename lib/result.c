@@ -537,8 +537,7 @@ pgresult_fieldnum( obj, name)
 {
     int n;
 
-    Check_Type( name, T_STRING);
-
+    StringValue( name);
     n = PQfnumber( get_pgresult( obj), RSTRING_PTR( name));
     if (n == -1)
         rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
