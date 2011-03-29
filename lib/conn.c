@@ -792,9 +792,8 @@ stringize_array( self, result, ary)
  *
  * This methods makes a string out of everything.  Numbers, booleans, +nil+,
  * date and time values, and even arrays will be written as PostgreSQL accepts
- * constants.  You may pass the result as a parameter to +exec+, +query+ etc.
- * or as a field after a +COPY+ statement if you don't use the standard
- * delimiters.
+ * constants.  You may pass the result as a field after a +COPY+ statement.
+ * This will be called internally for the parameters to +exec+, +query+ etc.
  *
  * Any other objects will be checked whether they have a method named
  * +to_postgres+.  If that doesn't exist the object will be converted by +to_s+.
@@ -1172,7 +1171,7 @@ const char **params_to_strings( conn, params)
     values = ALLOC_N( const char *, len);
     for (v = values; len; v++, ptr++, len--)
         *v = *ptr == Qnil ? NULL
-                         : RSTRING_PTR( pgconn_s_stringize( conn, *ptr));
+                          : RSTRING_PTR( pgconn_s_stringize( conn, *ptr));
     return values;
 }
 
