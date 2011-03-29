@@ -101,6 +101,7 @@ static VALUE pgconn_putline( VALUE self, VALUE str);
 static VALUE get_end( VALUE conn);
 static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_each_line( VALUE self);
 
 static VALUE pgconn_loimport( VALUE obj, VALUE filename);
 static VALUE pgconn_loexport( VALUE obj, VALUE lo_oid, VALUE filename);
@@ -1738,7 +1739,7 @@ get_end( self)
  * Read lines from a +COPY+ command.  The form of the lines depends
  * on the statement's parameters.
  *
- *   conn.copy_stdout "copy t from stdin;" do
+ *   conn.copy_stdout "copy t to stdout;" do
  *     l = conn.getline
  *     ary = l.split /\t/
  *     ary.map! { |x|
@@ -1778,7 +1779,7 @@ pgconn_copy_stdout( argc, argv, self)
  * If async is +true+ then the block will be called and its value
  * will be returned.
  *
- * Call this mehtod inside a block passed to +copy_stdout+. See
+ * Call this method inside a block passed to +copy_stdout+. See
  * there for an example.
  */
 VALUE
@@ -1814,6 +1815,32 @@ pgconn_getline( argc, argv, self)
     return Qnil;
 }
 
+/*
+ * call-seq:
+ *    conn.each_line() { |line| ... } -> nil
+ *
+ * Reads line after line from a +COPY+ command.
+ *
+ * Call this method inside a block passed to +copy_stdout+. See
+ * there for an example.
+ */
+VALUE
+pgconn_each_line( self)
+    VALUE self;
+{
+    PGconn *conn;
+    char *b;
+    int r;
+    VALUE s;
+
+    conn = get_pgconn( self);
+    for (; (r = PQgetCopyData( conn, &b, 0)) > 0;) {
+        s = rb_tainted_str_new( b, r);
+        PQfreemem( b);
+        rb_yield( s);
+    }
+    return Qnil;
+}
 
 
 
@@ -2067,6 +2094,8 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "copy_stdout", pgconn_copy_stdout, -1);
     rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
     rb_define_alias( rb_cPgConn, "get", "getline");
+    rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
+    rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
 
     rb_define_method( rb_cPgConn, "lo_import", pgconn_loimport, 1);
     rb_define_alias( rb_cPgConn, "loimport", "lo_import");
