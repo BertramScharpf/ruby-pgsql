@@ -73,7 +73,8 @@ static VALUE pgconn_client_encoding( VALUE obj);
 static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
 
 
-static const char **params_to_strings( VALUE conn, VALUE params);
+static char **params_to_strings( VALUE conn, VALUE params);
+static void free_strings( char **strs, int len);
 static VALUE exec_sql_statement( int argc, VALUE *argv, VALUE self);
 static VALUE yield_or_return_result( VALUE res);
 static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
@@ -824,12 +825,12 @@ pgconn_s_stringize( self, obj)
 
         case T_TRUE:
         case T_FALSE:
-        case T_FIXNUM:
             result = rb_obj_as_string( obj);
             break;
 
         case T_BIGNUM:
         case T_FLOAT:
+        case T_FIXNUM:
             result = rb_obj_as_string( obj);
             break;
 
@@ -1159,21 +1160,47 @@ pgconn_set_client_encoding( obj, str)
 }
 
 
-const char **params_to_strings( conn, params)
+char **
+params_to_strings( conn, params)
     VALUE conn, params;
 {
     VALUE *ptr;
     int len;
-    const char **values, **v;
+    char **values, **v;
+    VALUE str;
+    char *a;
 
     ptr = RARRAY_PTR( params);
     len = RARRAY_LEN( params);
-    values = ALLOC_N( const char *, len);
+    values = ALLOC_N( char *, len);
     for (v = values; len; v++, ptr++, len--)
-        *v = *ptr == Qnil ? NULL
-                          : RSTRING_PTR( pgconn_s_stringize( conn, *ptr));
+        if (NIL_P( *ptr))
+            *v = NULL;
+        else {
+            char *p, *q;
+
+            str = pgconn_s_stringize( conn, *ptr);
+            a = ALLOC_N( char, RSTRING_LEN( str) + 1);
+            for (p = a, q = RSTRING_PTR( str); *p = *q; ++p, ++q)
+                ;
+            *v = a;
+        }
     return values;
 }
+
+void
+free_strings( strs, len)
+    char **strs;
+    int len;
+{
+    char **p;
+    int l;
+
+    for (p = strs, l = len; l; --l, ++p)
+        xfree( *p);
+    xfree( strs);
+}
+
 
 VALUE
 exec_sql_statement( argc, argv, self)
@@ -1193,12 +1220,12 @@ exec_sql_statement( argc, argv, self)
     if (len <= 0)
         result = PQexec( conn, RSTRING_PTR( command));
     else {
-        const char **v;
+        char **v;
 
         v = params_to_strings( self, params);
         result = PQexecParams( conn, RSTRING_PTR( command), len,
-                               NULL, v, NULL, NULL, 0);
-        xfree( v);
+                               NULL, (const char **) v, NULL, NULL, 0);
+        free_strings( v, len);
     }
     if (result == NULL)
         pg_raise_pgconn( conn);
@@ -1287,12 +1314,12 @@ pgconn_send( argc, argv, self)
     if (len <= 0)
         res = PQsendQuery( conn, RSTRING_PTR( command));
     else {
-        const char **v;
+        char **v;
 
         v = params_to_strings( self, params);
         res = PQsendQueryParams( conn, RSTRING_PTR( command), len,
-                                 NULL, v, NULL, NULL, 0);
-        xfree( v);
+                                 NULL, (const char **) v, NULL, NULL, 0);
+        free_strings( v, len);
     }
     if (res <= 0)
         pg_raise_pgconn( conn);
