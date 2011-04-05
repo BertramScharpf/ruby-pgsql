@@ -310,7 +310,7 @@ fetch_pgresult( result, row, column)
             int typmod;
 
             typmod = PQfmod( result, column);
-            if (typmod != -1 && !((typmod - VARHDRSZ) & 0xffff))
+            if (typmod == -1 || (typmod - VARHDRSZ) & 0xffff)
                 break;
         }
         /* if scale == 0 fall through and return inum */
