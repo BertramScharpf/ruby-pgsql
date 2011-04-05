@@ -5,7 +5,11 @@
 
 #include "large.h"
 
+
 #include <libpq/libpq-fs.h>
+
+#include "conn.h"
+
 
 typedef struct pglarge_object
 {
@@ -59,7 +63,7 @@ loopen_int( conn, lo_oid, mode)
 
     fd = lo_open( conn, lo_oid, mode);
     if (fd < 0)
-        rb_raise( rb_ePgError, "can't open large object");
+        pg_raise_pgconn( conn);
     lob = pglarge_new( conn, lo_oid, fd);
     return rb_block_given_p() ?
         rb_ensure( rb_yield, lob, pglarge_close, lob) : lob;
@@ -82,7 +86,7 @@ large_tell( pglarge)
 
     pos = lo_tell( pglarge->pgconn, pglarge->lo_fd);
     if (pos == -1)
-        rb_raise( rb_ePgError, "error while getting position");
+        pg_raise_pgconn( pglarge->pgconn);
     return pos;
 }
 
@@ -95,7 +99,7 @@ large_lseek( pglarge, offset, whence)
 
     ret = lo_lseek( pglarge->pgconn, pglarge->lo_fd, offset, whence);
     if (ret == -1)
-        rb_raise( rb_ePgError, "error while moving cursor");
+        pg_raise_pgconn( pglarge->pgconn);
     return ret;
 }
 
@@ -150,7 +154,7 @@ locreate_pgconn( conn, nmode)
     mode = NIL_P( nmode) ? INV_WRITE : FIX2INT( nmode);
     lo_oid = lo_creat( conn, mode);
     if (lo_oid == 0)
-        rb_raise( rb_ePgError, "can't creat large object");
+        pg_raise_pgconn( conn);
     return loopen_int( conn, lo_oid, mode);
 }
 
@@ -204,7 +208,7 @@ pglarge_close( self)
         ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
         if (ret < 0 &&
                 PQtransactionStatus( pglarge->pgconn) != PQTRANS_INERROR) {
-            rb_raise( rb_ePgError, "cannot close large object");
+            pg_raise_pgconn( pglarge->pgconn);
         }
         DATA_PTR( self) = NULL;
     }
@@ -242,7 +246,7 @@ pglarge_read( argc, argv, self)
     buf = ALLOCA_N( char, len);
     siz = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, len);
     if (siz < 0)
-        rb_raise( rb_ePgError, "error while reading");
+        pg_raise_pgconn( pglarge->pgconn);
     return siz == 0 ? Qnil : rb_tainted_str_new( buf, siz);
 }
 
@@ -307,7 +311,7 @@ pglarge_write( self, buffer)
     n = lo_write( pglarge->pgconn, pglarge->lo_fd,
                   RSTRING_PTR( buffer), RSTRING_LEN( buffer));
     if (n == -1)
-        rb_raise( rb_ePgError, "buffer truncated during write");
+        pg_raise_pgconn( pglarge->pgconn);
 
     return INT2FIX( n);
 }

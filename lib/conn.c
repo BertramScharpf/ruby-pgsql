@@ -111,9 +111,6 @@ static VALUE pgconn_locreate( int argc, VALUE *argv, VALUE obj);
 static VALUE pgconn_loopen( int argc, VALUE *argv, VALUE obj);
 
 
-static void pg_raise_pgconn( PGconn *conn);
-
-
 static const char *str_NULL = "NULL";
 
 static VALUE rb_cPgConn;
@@ -1907,7 +1904,6 @@ pgconn_loexport( obj, lo_oid, filename)
     oid = NUM2INT( lo_oid);
     if (oid < 0)
         rb_raise( rb_ePgError, "invalid large object oid %d", oid);
-
     conn = get_pgconn( obj);
     if (!lo_export( conn, oid, StringValueCStr( filename)))
         pg_raise_pgconn( conn);
@@ -1971,18 +1967,18 @@ pgconn_loopen( argc, argv, obj)
  * Unlinks (deletes) the postgres large object of _oid_.
  */
 VALUE
-pgconn_lounlink( obj, lo_oid)
-    VALUE obj, lo_oid;
+pgconn_lounlink( self, lo_oid)
+    VALUE self, lo_oid;
 {
+    PGconn *conn;
     int oid;
-    int result;
 
     oid = NUM2INT( lo_oid);
     if (oid < 0)
         rb_raise( rb_ePgError, "invalid oid %d", oid);
-    result = lo_unlink( get_pgconn( obj), oid);
-    if (result < 0)
-        rb_raise( rb_ePgError, "unlink of oid %d failed", oid);
+    conn = get_pgconn( self);
+    if (lo_unlink( conn, oid) < 0)
+        pg_raise_pgconn( conn);
     return Qnil;
 }
 
