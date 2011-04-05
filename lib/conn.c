@@ -8,6 +8,8 @@
 #include <st.h>
 #include <intern.h>
 
+#include <libpq/libpq-fs.h>
+
 #include "result.h"
 
 
@@ -88,13 +90,13 @@ static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_get_notify( VALUE self);
 
-static VALUE rescue_transaction( VALUE obj);
-static VALUE yield_transaction( VALUE obj);
-static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE obj);
-static VALUE rescue_subtransaction( VALUE obj);
-static VALUE yield_subtransaction( VALUE obj);
-static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_transaction_status( VALUE obj);
+static VALUE rescue_transaction( VALUE self);
+static VALUE yield_transaction( VALUE self);
+static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
+static VALUE rescue_subtransaction( VALUE ary);
+static VALUE yield_subtransaction( VALUE ary);
+static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_transaction_status( VALUE self);
 
 static VALUE put_end( VALUE conn);
 static VALUE pgconn_copy_stdin( int argc, VALUE *argv, VALUE self);
@@ -104,11 +106,12 @@ static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_each_line( VALUE self);
 
-static VALUE pgconn_loimport( VALUE obj, VALUE filename);
-static VALUE pgconn_loexport( VALUE obj, VALUE lo_oid, VALUE filename);
-static VALUE pgconn_lounlink( VALUE obj, VALUE lo_oid);
-static VALUE pgconn_locreate( int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_loopen( int argc, VALUE *argv, VALUE obj);
+static VALUE pgconn_loimport( VALUE self, VALUE filename);
+static VALUE pgconn_loexport( VALUE self, VALUE lo_oid, VALUE filename);
+static VALUE pgconn_lounlink( VALUE self, VALUE lo_oid);
+static VALUE pgconn_locreate( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_loopen( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_losize( VALUE self, VALUE lo_oid);
 
 
 static const char *str_NULL = "NULL";
@@ -1132,11 +1135,11 @@ pgconn_quote_identifier( self, str)
  * Returns the client encoding as a String.
  */
 VALUE
-pgconn_client_encoding( obj)
-    VALUE obj;
+pgconn_client_encoding( self)
+    VALUE self;
 {
     char *encoding = (char *) pg_encoding_to_char(
-                                PQclientEncoding( get_pgconn( obj)));
+                                PQclientEncoding( get_pgconn( self)));
     return rb_tainted_str_new2( encoding);
 }
 
@@ -1147,11 +1150,11 @@ pgconn_client_encoding( obj)
  * Sets the client encoding to the +encoding+ string.
  */
 VALUE
-pgconn_set_client_encoding( obj, str)
-    VALUE obj, str;
+pgconn_set_client_encoding( self, str)
+    VALUE self, str;
 {
     StringValue( str);
-    if ((PQsetClientEncoding( get_pgconn( obj), RSTRING_PTR( str))) == -1)
+    if ((PQsetClientEncoding( get_pgconn( self), RSTRING_PTR( str))) == -1)
         rb_raise( rb_ePgError, "Invalid encoding name %s", str);
     return Qnil;
 }
@@ -1259,13 +1262,13 @@ pgconn_exec( argc, argv, self)
 
 
 VALUE
-clear_resultqueue( obj)
-    VALUE obj;
+clear_resultqueue( self)
+    VALUE self;
 {
     PGconn *conn;
     PGresult *result;
 
-    conn = get_pgconn( obj);
+    conn = get_pgconn( self);
     while ((result = PQgetResult( conn)) != NULL)
         PQclear( result);
     return Qnil;
@@ -1334,14 +1337,14 @@ pgconn_send( argc, argv, self)
  * The result will be +nil+ if there are no more results.
  */
 VALUE
-pgconn_fetch( obj)
-    VALUE obj;
+pgconn_fetch( self)
+    VALUE self;
 {
     PGconn *conn;
     PGresult *result;
     VALUE res;
 
-    conn = get_pgconn( obj);
+    conn = get_pgconn( self);
     if (PQconsumeInput( conn) == 0)
         pg_raise_pgconn( conn);
     if (PQisBusy( conn) > 0)
@@ -1502,22 +1505,22 @@ pgconn_get_notify( self)
 
 
 VALUE
-rescue_transaction( obj)
-    VALUE obj;
+rescue_transaction( self)
+    VALUE self;
 {
-    pg_pqexec( get_pgconn( obj), "rollback;");
+    pg_pqexec( get_pgconn( self), "rollback;");
     rb_exc_raise( ruby_errinfo);
     return Qnil;
 }
 
 VALUE
-yield_transaction( obj)
-    VALUE obj;
+yield_transaction( self)
+    VALUE self;
 {
     VALUE r;
 
-    r = rb_yield( obj);
-    pg_pqexec( get_pgconn( obj), "commit;");
+    r = rb_yield( self);
+    pg_pqexec( get_pgconn( self), "commit;");
     return r;
 }
 
@@ -1632,10 +1635,10 @@ pgconn_subtransaction( argc, argv, self)
  *   PQTRANS_UNKNOWN = 4 (cannot determine status)
  */
 VALUE
-pgconn_transaction_status( obj)
-    VALUE obj;
+pgconn_transaction_status( self)
+    VALUE self;
 {
-    return INT2NUM( PQtransactionStatus( get_pgconn( obj)));
+    return INT2NUM( PQtransactionStatus( get_pgconn( self)));
 }
 
 
@@ -1875,13 +1878,13 @@ pgconn_each_line( self)
  * failure, it raises a Pg::Error exception.
  */
 VALUE
-pgconn_loimport( obj, filename)
-    VALUE obj, filename;
+pgconn_loimport( self, filename)
+    VALUE self, filename;
 {
     Oid lo_oid;
     PGconn *conn;
 
-    conn = get_pgconn( obj);
+    conn = get_pgconn( self);
     lo_oid = lo_import( conn, StringValueCStr( filename));
     if (lo_oid == 0)
         pg_raise_pgconn( conn);
@@ -1895,8 +1898,8 @@ pgconn_loimport( obj, filename)
  * Saves a large object of _oid_ to a _file_.
  */
 VALUE
-pgconn_loexport( obj, lo_oid, filename)
-    VALUE obj, lo_oid, filename;
+pgconn_loexport( self, lo_oid, filename)
+    VALUE self, lo_oid, filename;
 {
     int oid;
     PGconn *conn;
@@ -1904,7 +1907,7 @@ pgconn_loexport( obj, lo_oid, filename)
     oid = NUM2INT( lo_oid);
     if (oid < 0)
         rb_raise( rb_ePgError, "invalid large object oid %d", oid);
-    conn = get_pgconn( obj);
+    conn = get_pgconn( self);
     if (!lo_export( conn, oid, StringValueCStr( filename)))
         pg_raise_pgconn( conn);
     return Qnil;
@@ -1923,15 +1926,15 @@ pgconn_loexport( obj, lo_oid, filename)
  *
  */
 VALUE
-pgconn_locreate( argc, argv, obj)
+pgconn_locreate( argc, argv, self)
     int argc;
     VALUE *argv;
-    VALUE obj;
+    VALUE self;
 {
     VALUE nmode;
 
     rb_scan_args( argc, argv, "01", &nmode);
-    return locreate_pgconn( get_pgconn( obj), nmode);
+    return locreate_pgconn( get_pgconn( self), nmode);
 }
 
 /*
@@ -1949,15 +1952,45 @@ pgconn_locreate( argc, argv, obj)
  *
  */
 VALUE
-pgconn_loopen( argc, argv, obj)
+pgconn_loopen( argc, argv, self)
     int argc;
     VALUE *argv;
-    VALUE obj;
+    VALUE self;
 {
     VALUE nmode, objid;
 
     rb_scan_args( argc, argv, "11", &objid, &nmode);
-    return loopen_pgconn( get_pgconn( obj), objid, nmode);
+    return loopen_pgconn( get_pgconn( self), objid, nmode);
+}
+
+/*
+ * call-seq:
+ *    conn.lo_size( oid) -> num
+ *
+ * Determine the size of the large object in bytes.
+ */
+VALUE
+pgconn_losize( self, lo_oid)
+    VALUE self;
+    VALUE lo_oid;
+{
+    PGconn *conn;
+    int oid;
+    int fd;
+    int pos, end;
+    int ret;
+
+    conn = get_pgconn( self);
+    oid = NUM2INT( lo_oid);
+    fd = lo_open( conn, oid, INV_READ);
+    if (fd < 0)
+        pg_raise_pgconn( conn);
+    pos = lo_tell( conn, fd);
+    end = lo_lseek( conn, fd, 0, SEEK_END);
+    ret = lo_close( conn, fd);
+    if (pos < 0 || end < 0 || ret < 0)
+        pg_raise_pgconn( conn);
+    return INT2NUM( end);
 }
 
 /*
@@ -2129,6 +2162,8 @@ Init_pgsql_conn( void)
     rb_define_alias( rb_cPgConn, "locreate", "lo_create");
     rb_define_method( rb_cPgConn, "lo_open", pgconn_loopen, -1);
     rb_define_alias( rb_cPgConn, "loopen", "lo_open");
+    rb_define_method( rb_cPgConn, "lo_size", pgconn_losize, 1);
+    rb_define_alias( rb_cPgConn, "losize", "lo_size");
 
     rb_ePgConnError = rb_define_class_under( rb_cPgConn, "Error", rb_ePgError);
 
