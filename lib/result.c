@@ -15,6 +15,7 @@
 VALUE rb_cBigDecimal;
 VALUE rb_cDate;
 VALUE rb_cDateTime;
+VALUE rb_cCurrency;
 
 static ID id_parse;
 static ID id_index;
@@ -343,6 +344,10 @@ fetch_pgresult( result, row, column)
     case TIMESTAMPOID:
     case TIMESTAMPTZOID:
         return rb_funcall( rb_cDateTime, id_parse, 1, ret);
+    case CASHOID:
+        if (NIL_P( rb_cCurrency))
+          rb_cCurrency = rb_const_get( rb_cObject, rb_intern( "Currency"));
+        return rb_funcall( rb_cCurrency, id_parse, 1, ret);
     default:
         return ret;
     }
@@ -768,6 +773,8 @@ Init_pgsql_result( void)
     rb_require( "time");
     rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
     rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
+
+    rb_cCurrency   = Qnil;
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
     rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
