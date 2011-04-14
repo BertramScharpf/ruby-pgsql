@@ -332,8 +332,7 @@ pgconn_init( argc, argv, self)
             if (NIL_P( params))
                 params = rb_hash_new();
             else {
-                params = rb_check_convert_type( params,
-                                                T_HASH, "Hash", "to_hash");
+                params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
                 params = rb_obj_dup( params);
             }
             connstr_to_hash( params, str);
