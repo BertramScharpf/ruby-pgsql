@@ -261,26 +261,39 @@ pglarge_each_line( self)
     VALUE self;
 {
     PGlarge *pglarge;
+    PGconn *conn;
+    int     fd;
     VALUE line;
-    int len, i, j, s;
+    int len, j, s, l, ret;
     char buf[ BUFSIZ], *p, *b, c;
     int ct;
 
     pglarge = get_pglarge( self);
+    conn = pglarge->pgconn, fd = pglarge->lo_fd;
     RETURN_ENUMERATOR( self, 0, 0);
     /* The code below really looks weird but is thoroughly tested. */
     line = rb_tainted_str_new( NULL, 0);
     do {
-        len = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, BUFSIZ);
-        for (i = 0, j = len, p = buf; j > 0;) {
-            s = i, b = buf + i;
-            do
-                i++, j--;
-            while ((ct = *p++ != '\n') && j > 0);
-            rb_str_cat( line, b, i - s);
+        len = lo_read( conn, fd, buf, BUFSIZ);
+        if (len < 0)
+            pg_raise_pgconn( conn);
+        for (j = len, p = buf; j > 0;) {
+            b = p;
+            do {
+                j--;
+                ct = *p++ != '\n';
+            } while (ct && j > 0);
+            l = p - b;
+            b[ l] = '\0';
+            rb_str_cat( line, b, l);
             if (!ct) {
+                /* Turn back file pointer in case a break occurs. */
+                ret = lo_lseek( conn, fd, l - len, SEEK_CUR);
+                if (ret == -1)
+                    pg_raise_pgconn( conn);
                 rb_yield( line);
                 line = rb_tainted_str_new( NULL, 0);
+                break;
             }
         }
     } while (len == BUFSIZ);
