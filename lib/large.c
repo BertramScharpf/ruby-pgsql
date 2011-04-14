@@ -386,6 +386,7 @@ Init_pgsql_large( void)
     rb_define_method( rb_cPgLarge, "close", pglarge_close, 0);
     rb_define_method( rb_cPgLarge, "read", pglarge_read, -1);
     rb_define_method( rb_cPgLarge, "each_line", pglarge_each_line, 0);
+    rb_define_alias( rb_cPgLarge, "eat_lines", "each_line");
     rb_define_method( rb_cPgLarge, "write", pglarge_write, 1);
     rb_define_method( rb_cPgLarge, "seek", pglarge_seek, 2);
     rb_define_method( rb_cPgLarge, "tell", pglarge_tell, 0);
