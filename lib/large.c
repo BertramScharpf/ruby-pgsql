@@ -16,6 +16,9 @@ typedef struct pglarge_object
     PGconn *pgconn;
     Oid     lo_oid;
     int     lo_fd;
+    char   *buf;
+    int     len;
+    int     rest;
 } PGlarge;
 
 
@@ -23,15 +26,18 @@ typedef struct pglarge_object
 static PGlarge *get_pglarge( VALUE obj);
 static VALUE    loopen_int( PGconn *conn, int objid, int nmode);
 static void     free_pglarge( PGlarge *ptr);
+static int      large_read(  PGlarge *pglarge, char *buf, int len);
 static int      large_tell(  PGlarge *pglarge);
 static int      large_lseek( PGlarge *pglarge, int offset, int whence);
-static VALUE    loread_all( VALUE obj);
+static VALUE    loread_all( VALUE self);
 static VALUE    pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd);
+static void     freebuf_rewind( PGlarge *ptr, int warn);
 
 static VALUE pglarge_oid( VALUE self);
 static VALUE pglarge_close( VALUE self);
 static VALUE pglarge_read( int argc, VALUE *argv, VALUE self);
 static VALUE pglarge_each_line( VALUE self);
+static VALUE pglarge_rewind( VALUE self);
 static VALUE pglarge_write( VALUE self, VALUE buffer);
 static VALUE pglarge_seek( VALUE self, VALUE offset, VALUE whence);
 static VALUE pglarge_tell( VALUE self);
@@ -75,7 +81,23 @@ free_pglarge( ptr)
 {
     if (ptr->lo_fd > 0)
         lo_close( ptr->pgconn, ptr->lo_fd);
+    if (ptr->buf != NULL)
+        xfree( ptr->buf);
     free( ptr);
+}
+
+int
+large_read( pglarge, buf, len)
+    PGlarge *pglarge;
+    char *buf;
+    int len;
+{
+    int siz;
+
+    siz = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, len);
+    if (siz == -1)
+        pg_raise_pgconn( pglarge->pgconn);
+    return siz;
 }
 
 int
@@ -104,24 +126,22 @@ large_lseek( pglarge, offset, whence)
 }
 
 VALUE
-loread_all( obj)
-    VALUE obj;
+loread_all( self)
+    VALUE self;
 {
     PGlarge *pglarge;
     VALUE str;
     long bytes = 0;
     int n;
 
-    pglarge = get_pglarge( obj);
+    pglarge = get_pglarge( self);
+    freebuf_rewind( pglarge, 1);
     str = rb_tainted_str_new( 0, 0);
-    for (;;) {
+    do {
         rb_str_resize( str, bytes + BUFSIZ);
-        n = lo_read( pglarge->pgconn, pglarge->lo_fd,
-                     RSTRING_PTR( str) + bytes, BUFSIZ);
+        n = large_read( pglarge, RSTRING_PTR( str) + bytes, BUFSIZ);
         bytes += n;
-        if (n < BUFSIZ)
-            break;
-    }
+    } while (n >= BUFSIZ);
     rb_str_resize( str, bytes);
     return str;
 }
@@ -139,6 +159,7 @@ pglarge_new( conn, lo_oid, lo_fd)
     pglarge->pgconn = conn;
     pglarge->lo_oid = lo_oid;
     pglarge->lo_fd = lo_fd;
+    pglarge->buf = NULL;
 
     return obj;
 }
@@ -230,11 +251,11 @@ pglarge_read( argc, argv, self)
     VALUE self;
 {
     int len;
-    PGlarge *pglarge = get_pglarge( self);
+    PGlarge *pglarge;
     char *buf;
     int siz;
-
     VALUE length;
+
     rb_scan_args( argc, argv, "01", &length);
     if (NIL_P( length))
         return loread_all( self);
@@ -243,10 +264,10 @@ pglarge_read( argc, argv, self)
     if (len < 0)
         rb_raise( rb_ePgError, "negative length %d given", len);
 
+    pglarge = get_pglarge( self);
+    freebuf_rewind( pglarge, 1);
     buf = ALLOCA_N( char, len);
-    siz = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, len);
-    if (siz < 0)
-        pg_raise_pgconn( pglarge->pgconn);
+    siz = large_read( pglarge, buf, len);
     return siz == 0 ? Qnil : rb_tainted_str_new( buf, siz);
 }
 
@@ -260,46 +281,79 @@ VALUE
 pglarge_each_line( self)
     VALUE self;
 {
-    PGlarge *pglarge;
-    PGconn *conn;
-    int     fd;
+    PGlarge *q;
     VALUE line;
-    int len, j, s, l, ret;
-    char buf[ BUFSIZ], *p, *b, c;
-    int ct;
+    int s;
+    int j, l;
+    char *p, *b;
+    int nl;
+#define EACH_LINE_BS BUFSIZ
 
-    pglarge = get_pglarge( self);
-    conn = pglarge->pgconn, fd = pglarge->lo_fd;
+    q = get_pglarge( self);
     RETURN_ENUMERATOR( self, 0, 0);
-    /* The code below really looks weird but is thoroughly tested. */
     line = rb_tainted_str_new( NULL, 0);
-    do {
-        len = lo_read( conn, fd, buf, BUFSIZ);
-        if (len < 0)
-            pg_raise_pgconn( conn);
-        for (j = len, p = buf; j > 0;) {
-            b = p;
-            do {
-                j--;
-                ct = *p++ != '\n';
-            } while (ct && j > 0);
-            l = p - b;
-            b[ l] = '\0';
-            rb_str_cat( line, b, l);
-            if (!ct) {
-                /* Turn back file pointer in case a break occurs. */
-                ret = lo_lseek( conn, fd, l - len, SEEK_CUR);
-                if (ret == -1)
-                    pg_raise_pgconn( conn);
-                rb_yield( line);
-                line = rb_tainted_str_new( NULL, 0);
-                break;
-            }
+    /* The code below really looks weird but is thoroughly tested. */
+    if (q->buf == NULL) {
+        large_lseek( q, 0, SEEK_SET);
+        q->buf = ALLOC_N( char, EACH_LINE_BS);
+        q->rest = 0;
+    } else
+        p = q->buf + q->len - q->rest;
+    for (;;) {
+        if (q->rest == 0) {
+            q->len = large_read( q, q->buf, EACH_LINE_BS);
+            q->rest = q->len;
+            p = q->buf;
         }
-    } while (len == BUFSIZ);
-    if (RSTRING_LEN(line) > 0)
+        if (q->len == 0)
+            break;
+        j = q->rest, b = p;
+        do {
+            j--;
+            nl = *p++ == '\n';
+        } while (!nl && j > 0);
+        l = p - b;
+        rb_str_cat( line, b, l);
+        q->rest -= l;
+        if (nl) {
+            rb_yield( line);
+            line = rb_tainted_str_new( NULL, 0);
+        }
+    }
+    if (RSTRING_LEN( line) > 0)
         rb_yield( line);
     return Qnil;
+#undef EACH_LINE_BS
+}
+
+/*
+ * call-seq:
+ *    lrg.rewind()     -> nil
+ *
+ * Rewind after an aborted +each_line+.
+ */
+VALUE
+pglarge_rewind( self)
+    VALUE self;
+{
+    freebuf_rewind( get_pglarge( self), 0);
+    return Qnil;
+}
+
+void
+freebuf_rewind( ptr, warn)
+    PGlarge *ptr;
+    int warn;
+{
+    int ret;
+
+    if (ptr->buf != NULL) {
+        if (warn)
+            rb_warn( "Aborting each_line processing.");
+        xfree( ptr->buf);
+        ptr->buf = NULL;
+        large_lseek( ptr, 0, SEEK_SET);
+    }
 }
 
 /*
@@ -321,11 +375,11 @@ pglarge_write( self, buffer)
         rb_raise( rb_ePgError, "write buffer zero string");
 
     pglarge = get_pglarge( self);
+    freebuf_rewind( pglarge, 1);
     n = lo_write( pglarge->pgconn, pglarge->lo_fd,
                   RSTRING_PTR( buffer), RSTRING_LEN( buffer));
     if (n == -1)
         pg_raise_pgconn( pglarge->pgconn);
-
     return INT2FIX( n);
 }
 
@@ -341,7 +395,10 @@ VALUE
 pglarge_seek( self, offset, whence)
     VALUE self, offset, whence;
 {
-    PGlarge *pglarge = get_pglarge( self);
+    PGlarge *pglarge;
+
+    pglarge = get_pglarge( self);
+    freebuf_rewind( pglarge, 1);
     return INT2NUM( large_lseek( pglarge, NUM2INT( offset), NUM2INT( whence)));
 }
 
@@ -355,7 +412,14 @@ VALUE
 pglarge_tell( self)
     VALUE self;
 {
-    return INT2NUM( large_tell( get_pglarge( self)));
+    PGlarge *pglarge;
+    int r;
+
+    pglarge = get_pglarge( self);
+    r = INT2NUM( large_tell( pglarge));
+    if (pglarge->buf != NULL)
+        r -= pglarge->len - pglarge->rest;
+    return r;
 }
 
 /*
@@ -400,6 +464,7 @@ Init_pgsql_large( void)
     rb_define_method( rb_cPgLarge, "read", pglarge_read, -1);
     rb_define_method( rb_cPgLarge, "each_line", pglarge_each_line, 0);
     rb_define_alias( rb_cPgLarge, "eat_lines", "each_line");
+    rb_define_method( rb_cPgLarge, "rewind", pglarge_rewind, 0);
     rb_define_method( rb_cPgLarge, "write", pglarge_write, 1);
     rb_define_method( rb_cPgLarge, "seek", pglarge_seek, 2);
     rb_define_method( rb_cPgLarge, "tell", pglarge_tell, 0);
