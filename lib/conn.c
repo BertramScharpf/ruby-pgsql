@@ -14,6 +14,7 @@
 
 
 static ID id_to_postgres;
+static ID id_format;
 static ID id_iso8601;
 static ID id_rows;
 static ID id_call;
@@ -54,6 +55,7 @@ static VALUE pgconn_socket( VALUE obj);
 static VALUE pgconn_trace( VALUE obj, VALUE port);
 static VALUE pgconn_untrace( VALUE obj);
 
+static VALUE pgconn_format( VALUE self, VALUE obj);
 static VALUE pgconn_escape_bytea( VALUE self, VALUE obj);
 static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
 static int   needs_dquote_string( VALUE str);
@@ -645,6 +647,33 @@ pgconn_untrace( obj)
 
 /*
  * call-seq:
+ *   conn.format( obj)  -> obj
+ *
+ * Format an object before it will be made a PostgreSQL type.
+ * By default this just returns the unmodified object but you may
+ * overwrite it fitting you own needs.
+ *
+ * The Object won't be replace if this method returns +nil+.
+ *
+ * = Example
+ *
+ *   class MyConn < Pg::Conn
+ *     def format obj
+ *       case obj
+ *         when Currency then obj.to_s_by_locale
+ *       end
+ *     end
+ *   end
+ */
+VALUE
+pgconn_format( self, obj)
+    VALUE self, obj;
+{
+    return obj;
+}
+
+/*
+ * call-seq:
  *   conn.escape_bytea( str)  -> str
  *
  * Converts a string of binary data into an escaped version.
@@ -814,8 +843,11 @@ VALUE
 pgconn_s_stringize( self, obj)
     VALUE self, obj;
 {
-    VALUE result;
+    VALUE o, result;
 
+    o = rb_funcall( self, id_format, 1, obj);
+    if (!NIL_P( o))
+        obj = o;
     switch (TYPE( obj)) {
         case T_STRING:
             result = obj;
@@ -1034,8 +1066,11 @@ VALUE
 pgconn_quote( self, obj)
     VALUE self, obj;
 {
-    VALUE result;
+    VALUE o, result;
 
+    o = rb_funcall( self, id_format, 1, obj);
+    if (!NIL_P( o))
+        obj = o;
     switch (TYPE( obj)) {
         case T_STRING:
             return quote_string( self, obj);
@@ -2123,6 +2158,8 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "trace", pgconn_trace, 1);
     rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
 
+    rb_define_method( rb_cPgConn, "format",
+                                            pgconn_format, 1);
     rb_define_method( rb_cPgConn, "escape_bytea",
                                             pgconn_escape_bytea, 1);
     rb_define_singleton_method( rb_cPgConn, "escape_bytea",
@@ -2200,6 +2237,7 @@ Init_pgsql_conn( void)
     rb_ePgConnError = rb_define_class_under( rb_cPgConn, "Error", rb_ePgError);
 
     id_to_postgres = rb_intern( "to_postgres");
+    id_format      = rb_intern( "format");
     id_iso8601     = rb_intern( "iso8601");
     id_rows        = 0;
     id_call        = 0;
