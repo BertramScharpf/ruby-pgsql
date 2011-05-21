@@ -21,7 +21,6 @@ static ID id_on_notice;
 static ID id_gsub_bang;
 
 static VALUE pg_escape_regex;
-static VALUE pg_escape_str;
 
 static PGconn *get_pgconn( VALUE obj);
 static PGresult *pg_pqexec( PGconn *conn, const char *cmd);
@@ -61,6 +60,7 @@ static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
 static VALUE pgconn_s_stringize( VALUE self, VALUE obj);
+static VALUE gsub_escape_i( VALUE c, VALUE arg);
 static VALUE pgconn_s_stringize_line( VALUE self, VALUE ary);
 
 static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
@@ -192,7 +192,8 @@ pgconn_s_translate_results_set( self, fact)
 }
 
 
-int set_connect_params( st_data_t key, st_data_t val, st_data_t args)
+int
+set_connect_params( st_data_t key, st_data_t val, st_data_t args)
 {
     const char ***ptrs = (const char ***)args;
     VALUE k, v;
@@ -235,7 +236,8 @@ static const char re_connstr[] =
 #define KEY_PORT     "port"
 #define KEY_DBNAME   "dbname"
 
-void connstr_to_hash( VALUE params, VALUE str)
+void
+connstr_to_hash( VALUE params, VALUE str)
 {
     VALUE re, match, m;
 
@@ -252,10 +254,11 @@ void connstr_to_hash( VALUE params, VALUE str)
         ADD_TO_RES( KEY_DBNAME,   5);
 #undef ADD_TO_RES
     } else
-        rb_raise( rb_eArgError, "Unvalid connection: %s", RSTRING_PTR( str));
+        rb_raise( rb_eArgError, "Invalid connection: %s", RSTRING_PTR( str));
 }
 
-void connstr_passwd( VALUE self, VALUE params)
+void
+connstr_passwd( VALUE self, VALUE params)
 {
     VALUE id_password;
     VALUE pw, cl, repl;
@@ -865,6 +868,26 @@ pgconn_s_stringize( self, obj)
     return result;
 }
 
+
+VALUE
+gsub_escape_i( VALUE c, VALUE arg)
+{
+    const char *r;
+
+    r = NULL;
+    switch (*RSTRING_PTR( c)) {
+        case '\b': r = "\\b";  break;
+        case '\f': r = "\\f";  break;
+        case '\n': r = "\\n";  break;
+        case '\r': r = "\\r";  break;
+        case '\t': r = "\\t";  break;
+        case '\v': r = "\\v";  break;
+        case '\\': r = "\\\\"; break;
+        default:               break;
+    }
+    return rb_str_new2( r);
+}
+
 /*
  * call-seq:
  *    Pg::Conn.stringize_line( ary)  ->  str
@@ -872,7 +895,8 @@ pgconn_s_stringize( self, obj)
  * Quote a line the standard way that +COPY+ expects. Tabs, newlines, and
  * backslashes will be escaped, +nil+ will become "\\N".
  */
-VALUE pgconn_s_stringize_line( self, ary)
+VALUE
+pgconn_s_stringize_line( self, ary)
     VALUE self, ary;
 {
     VALUE a;
@@ -881,13 +905,19 @@ VALUE pgconn_s_stringize_line( self, ary)
     VALUE ret, s;
 
     a = rb_check_convert_type( ary, T_ARRAY, "Array", "to_ary");
+    if (NIL_P(a))
+        rb_raise( rb_eArgError, "Give me an array.");
+    if (NIL_P( pg_escape_regex)) {
+        pg_escape_regex = rb_reg_new( "([\\b\\f\\n\\r\\t\\v\\\\])", 18, 0);
+        rb_global_variable( &pg_escape_regex);
+    }
     ret = rb_str_new( NULL, 0);
     for (l = RARRAY_LEN( a), p = RARRAY_PTR( a); l; ++p) {
         if (NIL_P( *p))
             rb_str_cat( ret, "\\N", 2);
         else {
             s = pgconn_s_stringize( self, *p);
-            rb_funcall( s, id_gsub_bang, 2, pg_escape_regex, pg_escape_str);
+            rb_block_call( s, id_gsub_bang, 1, &pg_escape_regex, gsub_escape_i, Qnil);
             rb_str_cat( ret, RSTRING_PTR( s), RSTRING_LEN( s));
         }
         if (--l > 0)
@@ -1062,7 +1092,8 @@ pgconn_quote( self, obj)
     return result;
 }
 
-void quote_all( self, ary, res)
+void
+quote_all( self, ary, res)
     VALUE self, ary, res;
 {
     VALUE *p;
@@ -1086,7 +1117,8 @@ void quote_all( self, ary, res)
  * Does a #quote for every argument and pastes the results
  * together with comma.
  */
-VALUE pgconn_quote_all( argc, argv, self)
+VALUE
+pgconn_quote_all( argc, argv, self)
     int argc;
     VALUE *argv;
     VALUE self;
@@ -2016,7 +2048,8 @@ pgconn_lounlink( self, lo_oid)
 
 
 
-void pg_raise_pgconn( PGconn *conn)
+void
+pg_raise_pgconn( PGconn *conn)
 {
     rb_raise( rb_ePgConnError, PQerrorMessage( conn));
 }
@@ -2173,9 +2206,6 @@ Init_pgsql_conn( void)
     id_on_notice   = 0;
     id_gsub_bang   = rb_intern( "gsub!");
 
-    pg_escape_regex = rb_reg_new( "([\\b\\f\\n\\r\\t\\v\\\\])", 18, 0);
-    rb_global_variable( &pg_escape_regex);
-    pg_escape_str = rb_str_new( "\\\\\\1", 4);
-    rb_global_variable( &pg_escape_str);
+    pg_escape_regex = Qnil;
 }
 

@@ -275,7 +275,8 @@ fetch_fields( result)
     return ary;
 }
 
-VALUE field_index( fields, name)
+VALUE
+field_index( fields, name)
     VALUE fields, name;
 {
     VALUE ret;
