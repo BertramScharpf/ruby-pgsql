@@ -120,6 +120,7 @@ static const char *str_NULL = "NULL";
 
 static VALUE rb_cPgConn;
 static VALUE rb_ePgConnError;
+static VALUE rb_ePgTransError;
 
 
 int translate_results = 1;
@@ -1610,6 +1611,7 @@ pgconn_transaction( argc, argv, self)
     VALUE ser, ro;
     VALUE cmd;
     int p;
+    PGconn *conn;
 
     rb_scan_args( argc, argv, "02", &ser, &ro);
     cmd = rb_str_buf_new2( "begin");
@@ -1625,7 +1627,12 @@ pgconn_transaction( argc, argv, self)
         rb_str_buf_cat2( cmd, (RTEST(ro)  ? "only" : "write"));
     }
     rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( self), RSTRING_PTR(cmd));
+
+    conn = get_pgconn( self);
+    if (PQtransactionStatus( conn) > PQTRANS_IDLE)
+        rb_raise( rb_ePgTransError,
+            "Nested transaction block. Use Conn#subtransaction.");
+    pg_pqexec( conn, RSTRING_PTR(cmd));
     return rb_rescue( yield_transaction, self, rescue_transaction, self);
 }
 
@@ -2234,7 +2241,10 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "lo_size", pgconn_losize, 1);
     rb_define_alias( rb_cPgConn, "losize", "lo_size");
 
-    rb_ePgConnError = rb_define_class_under( rb_cPgConn, "Error", rb_ePgError);
+#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError);
+    rb_ePgConnError  = ERR_DEF( "Error");
+    rb_ePgTransError = ERR_DEF( "Transaction");
+#undef ERR_DEF
 
     id_to_postgres = rb_intern( "to_postgres");
     id_format      = rb_intern( "format");
