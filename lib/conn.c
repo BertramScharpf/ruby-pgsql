@@ -61,9 +61,9 @@ static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
 static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
-static VALUE pgconn_s_stringize( VALUE self, VALUE obj);
+static VALUE pgconn_stringize( VALUE self, VALUE obj);
 static VALUE gsub_escape_i( VALUE c, VALUE arg);
-static VALUE pgconn_s_stringize_line( VALUE self, VALUE ary);
+static VALUE pgconn_stringize_line( VALUE self, VALUE ary);
 
 static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
 static VALUE quote_string( VALUE conn, VALUE str);
@@ -809,7 +809,7 @@ stringize_array( self, result, ary)
                 rb_raise( rb_ePgError, "Array members of different type.");
             rb_str_buf_cat2( result, ",");
         }
-        r = pgconn_s_stringize( self, *o);
+        r = pgconn_stringize( self, *o);
         if (!NIL_P( *o)) {
             r = dquote_string( r);
             OBJ_INFECT( result, *o);
@@ -821,7 +821,7 @@ stringize_array( self, result, ary)
 
 /*
  * call-seq:
- *   Pg::Conn.stringize( obj) -> str
+ *   conn.stringize( obj) -> str
  *
  * This methods makes a string out of everything.  Numbers, booleans, +nil+,
  * date and time values, and even arrays will be written as PostgreSQL accepts
@@ -832,7 +832,7 @@ stringize_array( self, result, ary)
  * +to_postgres+.  If that doesn't exist the object will be converted by +to_s+.
  *
  * If you are quoting into a SQL statement please don't do something like
- * <code>"insert into ... (E'#{Conn.stringize obj}', ...);"</code>.  Use
+ * <code>"insert into ... (E'#{conn.stringize obj}', ...);"</code>.  Use
  * +Conn.quote+ instead that will put the appropriate quoting characters around
  * its string.
  *
@@ -841,7 +841,7 @@ stringize_array( self, result, ary)
  * string or as a +bytea+.  See the Pg::Conn#escape_bytea method.
  */
 VALUE
-pgconn_s_stringize( self, obj)
+pgconn_stringize( self, obj)
     VALUE self, obj;
 {
     VALUE o, result;
@@ -923,13 +923,13 @@ gsub_escape_i( VALUE c, VALUE arg)
 
 /*
  * call-seq:
- *    Pg::Conn.stringize_line( ary)  ->  str
+ *    conn.stringize_line( ary)  ->  str
  *
  * Quote a line the standard way that +COPY+ expects. Tabs, newlines, and
  * backslashes will be escaped, +nil+ will become "\\N".
  */
 VALUE
-pgconn_s_stringize_line( self, ary)
+pgconn_stringize_line( self, ary)
     VALUE self, ary;
 {
     VALUE a;
@@ -949,7 +949,7 @@ pgconn_s_stringize_line( self, ary)
         if (NIL_P( *p))
             rb_str_cat( ret, "\\N", 2);
         else {
-            s = pgconn_s_stringize( self, *p);
+            s = pgconn_stringize( self, *p);
             rb_block_call( s, id_gsub_bang, 1, &pg_escape_regex, gsub_escape_i, Qnil);
             rb_str_cat( ret, RSTRING_PTR( s), RSTRING_LEN( s));
         }
@@ -1050,10 +1050,10 @@ quote_array( self, result, ary)
  * any result in a statement passed to Conn#exec.
  *
  * If you prefer to pass your objects as a parameter to +exec+, +query+ etc.
- * or as a field after a +COPY+ statement you should call Pg::Conn#stringize.
+ * or as a field after a +COPY+ statement you should call conn#stringize.
  *
  * This method is to prevent you from saying something like
- * <code>"insert into ... (E'#{Conn.stringize obj}', ...);"</code>.  It is
+ * <code>"insert into ... (E'#{conn.stringize obj}', ...);"</code>.  It is
  * more efficient to say
  *
  *   conn.exec "insert into ... (#{conn.quote obj}, ...);"
@@ -1246,7 +1246,7 @@ params_to_strings( conn, params)
         else {
             char *p, *q;
 
-            str = pgconn_s_stringize( conn, *ptr);
+            str = pgconn_stringize( conn, *ptr);
             a = ALLOC_N( char, RSTRING_LEN( str) + 1);
             for (p = a, q = RSTRING_PTR( str); *p = *q; ++p, ++q)
                 ;
@@ -1730,7 +1730,7 @@ put_end( self)
     conn = get_pgconn( self);
     errm = NIL_P( ruby_errinfo) ?
             NULL :
-            RSTRING_PTR( rb_obj_as_string(ruby_errinfo));
+            RSTRING_PTR( rb_obj_as_string( ruby_errinfo));
     while ((r = PQputCopyEnd( conn, errm)) == 0)
         ;
     if (r < 0)
@@ -1768,27 +1768,39 @@ pgconn_copy_stdin( argc, argv, self)
 /*
  * call-seq:
  *    conn.putline( str)         -> nil
+ *    conn.putline( ary)         -> nil
  *    conn.putline( str) { ... } -> nil
  *
  * Sends the string to the backend server.
  * You have to open the stream with a +COPY+ command using +copy_stdin+.
  *
- * If +str+ doesn't end in a newline, one is appended.
+ * If +str+ doesn't end in a newline, one is appended. If the argument
+ * is +ary+, a line will be built using +stringize_line+.
  *
  * If the connection is in nonblocking mode the block will be called
  * and its value will be returned.
  */
 VALUE
-pgconn_putline( self, str)
-    VALUE self, str;
+pgconn_putline( self, arg)
+    VALUE self, arg;
 {
-    PGconn *conn;
+    VALUE str;
     char *p;
     int l;
+    PGconn *conn;
     int r;
 
-    StringValue( str);
-    conn = get_pgconn( self);
+    switch (TYPE( arg)) {
+    case T_STRING:
+        str = arg;
+        break;
+    case T_ARRAY:
+        str = pgconn_stringize_line( self, arg);
+        break;
+    default:
+        str = rb_obj_as_string( arg);
+        break;
+    }
     p = RSTRING_PTR( str), l = RSTRING_LEN( str);
     if (p[ l - 1] != '\n') {
         VALUE t;
@@ -1797,6 +1809,8 @@ pgconn_putline( self, str)
         rb_str_buf_cat( t, "\n", 1);
         p = RSTRING_PTR( t), l = RSTRING_LEN( t);
     }
+
+    conn = get_pgconn( self);
     r = PQputCopyData( conn, p, l);
     if (r < 0)
         rb_exc_raise( pgreserror_new( PQgetResult( conn)));
@@ -2175,13 +2189,9 @@ Init_pgsql_conn( void)
                                             pgconn_unescape_bytea, 1);
     rb_define_singleton_method( rb_cPgConn, "unescape_bytea",
                                             pgconn_unescape_bytea, 1);
-    rb_define_singleton_method( rb_cPgConn, "stringize",
-                                            pgconn_s_stringize, 1);
     rb_define_method( rb_cPgConn, "stringize",
-                                            pgconn_s_stringize, 1);
-    rb_define_singleton_method( rb_cPgConn, "stringize_line",
-                                            pgconn_s_stringize_line, 1);
-    rb_define_method( rb_cPgConn, "stringize_line", pgconn_s_stringize_line, 1);
+                                            pgconn_stringize, 1);
+    rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);
 
     rb_define_method( rb_cPgConn, "quote_bytea",
                                             pgconn_quote_bytea, 1);
