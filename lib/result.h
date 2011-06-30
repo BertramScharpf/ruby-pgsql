@@ -13,9 +13,9 @@ extern VALUE rb_cBigDecimal;
 extern VALUE rb_cDate;
 extern VALUE rb_cDateTime;
 
-extern VALUE pgreserror_new( PGresult *ptr);
+extern VALUE pgreserror_new( PGresult *ptr, VALUE cmd, VALUE args);
 
-extern void      pg_checkresult( PGconn *conn, PGresult *result);
+extern int       pg_checkresult( PGresult *result);
 extern PGresult *get_pgresult( VALUE obj);
 extern VALUE     string_unescape_bytea( char *escaped);
 

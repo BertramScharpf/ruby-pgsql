@@ -55,8 +55,9 @@ static VALUE rb_cPgResult;
 static VALUE rb_ePgResError;
 
 
-void
-pg_checkresult( PGconn *conn, PGresult *result)
+int
+pg_checkresult( result)
+    PGresult *result;
 {
     switch (PQresultStatus( result)) {
         case PGRES_EMPTY_QUERY:
@@ -68,13 +69,14 @@ pg_checkresult( PGconn *conn, PGresult *result)
         case PGRES_BAD_RESPONSE:
         case PGRES_NONFATAL_ERROR:
         case PGRES_FATAL_ERROR:
-            rb_exc_raise( pgreserror_new( result));
+            return -1;
             break;
         default:
             PQclear( result);
             rb_raise( rb_ePgError, "internal error: unknown result status.");
             break;
     }
+    return 0;
 }
 
 PGresult *
@@ -118,8 +120,10 @@ get_field_number( result, index)
 
 
 VALUE
-pgreserror_new( result)
+pgreserror_new( result, cmd, args)
     PGresult *result;
+    VALUE cmd;
+    VALUE args;
 {
     VALUE rse, msg;
 
@@ -127,6 +131,8 @@ pgreserror_new( result)
     DATA_PTR( rse) = result;
     msg = rb_str_new2( PQresultErrorMessage( result));
     rb_obj_call_init( rse, 1, &msg);
+    rb_ivar_set( rse, rb_intern( "@command"),    cmd);
+    rb_ivar_set( rse, rb_intern( "@parameters"), args);
     return rse;
 }
 
@@ -816,14 +822,20 @@ Init_pgsql_result( void)
     rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
     rb_define_alias( rb_cPgResult, "close", "clear");
 
+
     rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
     rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
+
+    rb_define_attr( rb_ePgResError, "command",    1, 0);
+    rb_define_attr( rb_ePgResError, "parameters", 1, 0);
+
     rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
     rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
     rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
     rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
     rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
     rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
+
 
     id_parse = rb_intern( "parse");
     id_index = rb_intern( "index");
