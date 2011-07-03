@@ -17,7 +17,7 @@ A PostgreSQL library that was carefully designed.
 * Quick query of single lines or values
 * Full PostgreSQL quoting support
 * Built-in transactions and savepoints by Ruby blocks
-* Lage objects
+* Large objects
 
 == Example
 
@@ -41,4 +41,8 @@ Write something like this:
     end
     ...
   end
+
+== Thanks
+
+In the remembrance of Guy Decoux.
 
