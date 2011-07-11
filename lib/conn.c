@@ -155,7 +155,7 @@ pg_pqexec( conn, cmd)
     result = PQexec( conn, RSTRING_PTR(cmd));
     if (result == NULL)
         pg_raise_pgconn( conn);
-    if (pg_checkresult( result) != 0)
+    if (pg_checkresult( result) < 0)
         rb_exc_raise( pgreserror_new( result, cmd, Qnil));
     return result;
 }
@@ -1305,7 +1305,7 @@ exec_sql_statement( argc, argv, self, store)
     }
     if (result == NULL)
         pg_raise_pgconn( conn);
-    if (pg_checkresult( result) != 0)
+    if (pg_checkresult( result) < 0)
         rb_exc_raise( pgreserror_new( result, command, params));
     if (store)
         pgconn_cmd_set( self, command, params);
@@ -1434,7 +1434,7 @@ pgconn_fetch( self)
     if (result == NULL)
         res = Qnil;
     else {
-        if (pg_checkresult( result) != 0)
+        if (pg_checkresult( result) < 0)
             pg_raise_pgres( self, result);
         res = pgresult_new( conn, result);
     }
@@ -1753,9 +1753,11 @@ put_end( self)
     if (errm == NULL) {
         PGresult *res;
 
-        res = PQgetResult( conn);
-        if (pg_checkresult( res) != 0)
-            pg_raise_pgres( self, res);
+        while ((res = PQgetResult( conn)) != NULL) {
+            if (pg_checkresult( res) < 0)
+                pg_raise_pgres( self, res);
+            PQclear( res);
+        }
     }
     pgconn_cmd_clear( self);
     return Qnil;
@@ -1785,7 +1787,7 @@ pgconn_copy_stdin( argc, argv, self)
     VALUE result;
 
     result = exec_sql_statement( argc, argv, self, 1);
-    rb_ensure( rb_yield, result, put_end, self);
+    return rb_ensure( rb_yield, result, put_end, self);
 }
 
 /*
@@ -1856,9 +1858,11 @@ get_end( self)
     if (NIL_P( ruby_errinfo)) {
         PGresult *res;
 
-        res = PQgetResult( conn);
-        if (pg_checkresult( res) != 0)
-            pg_raise_pgres( self, res);
+        while ((res = PQgetResult( conn)) != NULL) {
+            if (pg_checkresult( res) < 0)
+                pg_raise_pgres( self, res);
+            PQclear( res);
+        }
     }
     pgconn_cmd_clear( self);
     return Qnil;
@@ -1897,7 +1901,7 @@ pgconn_copy_stdout( argc, argv, self)
     VALUE result;
 
     result = exec_sql_statement( argc, argv, self, 1);
-    rb_ensure( rb_yield, result, get_end, self);
+    return rb_ensure( rb_yield, result, get_end, self);
 }
 
 /*

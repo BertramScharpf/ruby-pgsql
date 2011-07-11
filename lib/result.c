@@ -59,7 +59,10 @@ int
 pg_checkresult( result)
     PGresult *result;
 {
-    switch (PQresultStatus( result)) {
+    int s;
+
+    s = PQresultStatus( result);
+    switch (s) {
         case PGRES_EMPTY_QUERY:
         case PGRES_COMMAND_OK:
         case PGRES_TUPLES_OK:
@@ -76,7 +79,7 @@ pg_checkresult( result)
             rb_raise( rb_ePgError, "internal error: unknown result status.");
             break;
     }
-    return 0;
+    return s;
 }
 
 PGresult *
