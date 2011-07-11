@@ -341,19 +341,19 @@ pgconn_init( argc, argv, self)
     const char **ptrs[ 2];
     PGconn *conn = NULL;
 
-    if (rb_scan_args( argc, argv, "02", &str, &params) > 0) {
-        if (TYPE( str) == T_STRING) {
-            if (NIL_P( params))
-                params = rb_hash_new();
-            else {
-                params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
-                params = rb_obj_dup( params);
-            }
-            connstr_to_hash( params, str);
-        } else
+    if (rb_scan_args( argc, argv, "02", &str, &params) < 2)
+        if (TYPE( str) != T_STRING) {
             params = str;
-    } else
+            str = Qnil;
+        }
+    if      (NIL_P( params))
         params = rb_hash_new();
+    else if (TYPE( params) != T_HASH)
+        params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
+    else
+        params = rb_obj_dup( params);
+    if (!NIL_P( str))
+        connstr_to_hash( params, rb_obj_as_string( str));
     connstr_passwd( self, params);
 
     l = RHASH_SIZE( params) + 1;
