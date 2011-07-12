@@ -620,23 +620,27 @@ pgconn_socket( obj)
 /*
  * call-seq:
  *    conn.trace( port)
+ *    conn.trace( port) { ... }
  *
  * Enables tracing message passing between backend.
  * The trace message will be written to the _port_ object,
- * which is an instance of the class +File+.
+ * which is an instance of the class +File+ (or at least +IO+).
+ *
+ * In case a block is given +untrace+ will be called automatically.
  */
 VALUE
-pgconn_trace( obj, port)
-    VALUE obj, port;
+pgconn_trace( self, port)
+    VALUE self, port;
 {
     OpenFile* fp;
 
-    if (TYPE( port) == T_FILE)
+    if (TYPE( port) != T_FILE)
         rb_raise( rb_eArgError, "Not an IO object: %s",
                                 StringValueCStr( port));
     GetOpenFile( port, fp);
-    PQtrace( get_pgconn( obj), rb_io_stdio_file( fp));
-    return obj;
+    PQtrace( get_pgconn( self), rb_io_stdio_file( fp));
+    return RTEST( rb_block_given_p()) ?
+        rb_ensure( rb_yield, Qnil, pgconn_untrace, self) : Qnil;
 }
 
 /*
@@ -646,11 +650,11 @@ pgconn_trace( obj, port)
  * Disables the message tracing.
  */
 VALUE
-pgconn_untrace( obj)
-    VALUE obj;
+pgconn_untrace( self)
+    VALUE self;
 {
-    PQuntrace( get_pgconn( obj));
-    return obj;
+    PQuntrace( get_pgconn( self));
+    return Qnil;
 }
 
 
