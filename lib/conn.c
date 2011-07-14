@@ -1743,21 +1743,24 @@ put_end( self)
     VALUE self;
 {
     PGconn *conn;
-    char *errm;
     int r;
     PGresult *res;
 
     conn = get_pgconn( self);
-    errm = NIL_P( ruby_errinfo) ?
-            NULL :
-            RSTRING_PTR( rb_obj_as_string( ruby_errinfo));
-    while ((r = PQputCopyEnd( conn, errm)) == 0)
+    /*
+     * I would liek to hand over something like
+     *     RSTRING_PTR( rb_obj_as_string( ruby_errinfo))
+     * here but when execution is inside a rescue block
+     * the error info will be non-null even though the
+     * exception just has been caught.
+     */
+    while ((r = PQputCopyEnd( conn, NULL)) == 0)
         ;
     if (r < 0)
         pg_raise_pgconn( conn);
 
     while ((res = PQgetResult( conn)) != NULL) {
-        if (pg_checkresult( res) < 0 && errm == NULL)
+        if (pg_checkresult( res) < 0 && NIL_P( ruby_errinfo))
             pg_raise_pgres( self, res);
         PQclear( res);
     }
