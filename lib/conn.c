@@ -1745,6 +1745,7 @@ put_end( self)
     PGconn *conn;
     char *errm;
     int r;
+    PGresult *res;
 
     conn = get_pgconn( self);
     errm = NIL_P( ruby_errinfo) ?
@@ -1754,14 +1755,11 @@ put_end( self)
         ;
     if (r < 0)
         pg_raise_pgconn( conn);
-    if (errm == NULL) {
-        PGresult *res;
 
-        while ((res = PQgetResult( conn)) != NULL) {
-            if (pg_checkresult( res) < 0)
-                pg_raise_pgres( self, res);
-            PQclear( res);
-        }
+    while ((res = PQgetResult( conn)) != NULL) {
+        if (pg_checkresult( res) < 0 && errm == NULL)
+            pg_raise_pgres( self, res);
+        PQclear( res);
     }
     pgconn_cmd_clear( self);
     return Qnil;
@@ -1854,19 +1852,15 @@ get_end( self)
     VALUE self;
 {
     PGconn *conn;
-    int stat;
     char *b;
-    int l;
+    PGresult *res;
 
     conn = get_pgconn( self);
-    if (NIL_P( ruby_errinfo)) {
-        PGresult *res;
 
-        while ((res = PQgetResult( conn)) != NULL) {
-            if (pg_checkresult( res) < 0)
-                pg_raise_pgres( self, res);
-            PQclear( res);
-        }
+    while ((res = PQgetResult( conn)) != NULL) {
+        if (pg_checkresult( res) < 0 && NIL_P( ruby_errinfo))
+            pg_raise_pgres( self, res);
+        PQclear( res);
     }
     pgconn_cmd_clear( self);
     return Qnil;
