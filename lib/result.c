@@ -175,7 +175,7 @@ pgreserror_sqlst( self)
  * call-seq:
  *   pgqe.primary() => string
  *
- * Forward PostgreSQL's error details.
+ * Forward PostgreSQL's primary error message.
  *
  */
 VALUE
