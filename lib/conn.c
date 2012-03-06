@@ -667,7 +667,7 @@ pgconn_untrace( self)
  * By default this just returns the unmodified object but you may
  * overwrite it fitting you own needs.
  *
- * The Object won't be replace if this method returns +nil+.
+ * The Object won't be replaced if this method returns +nil+.
  *
  * = Example
  *
@@ -1749,7 +1749,7 @@ put_end( self)
 
     conn = get_pgconn( self);
     /*
-     * I would liek to hand over something like
+     * I would like to hand over something like
      *     RSTRING_PTR( rb_obj_as_string( ruby_errinfo))
      * here but when execution is inside a rescue block
      * the error info will be non-null even though the
