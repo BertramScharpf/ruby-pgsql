@@ -29,7 +29,8 @@ static PGconn *get_pgconn( VALUE obj);
 static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
 
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
-static VALUE pgconn_s_translate_results_set( VALUE self, VALUE fact);
+static VALUE pgconn_s_parse( VALUE cls, VALUE str);
+static VALUE pgconn_s_translate_results_set( VALUE cls, VALUE fact);
 
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
@@ -187,6 +188,27 @@ pgconn_s_connect( argc, argv, cls)
         rb_ensure( rb_yield, pgconn, pgconn_close, pgconn) : pgconn;
 }
 
+
+/*
+ * call-seq:
+ *   Pg::Conn.parse( str)    -> hash
+ *
+ * Parse a connection string and return a hash with keys <code>:dbname</code>,
+ * <code>:user</code>, <code>:host</code>, etc.
+ *
+ */
+VALUE
+pgconn_s_parse( cls, str)
+    VALUE cls, str;
+{
+    VALUE params;
+
+    params = rb_hash_new();
+    connstr_to_hash( params, rb_obj_as_string( str));
+    return params;
+}
+
+
 /*
  * call-seq:
  *   Pg::Conn.translate_results = boolean
@@ -196,8 +218,8 @@ pgconn_s_connect( argc, argv, cls)
  *
  */
 VALUE
-pgconn_s_translate_results_set( self, fact)
-    VALUE self, fact;
+pgconn_s_translate_results_set( cls, fact)
+    VALUE cls, fact;
 {
     translate_results = RTEST( fact) ? 1 : 0;
     return Qnil;
@@ -2202,6 +2224,7 @@ Init_pgsql_conn( void)
     rb_define_singleton_method( rb_cPgConn, "connect", pgconn_s_connect, -1);
     rb_define_alias( rb_singleton_class( rb_cPgConn), "open", "connect");
 
+    rb_define_singleton_method( rb_cPgConn, "parse", pgconn_s_parse, 1);
     rb_define_singleton_method( rb_cPgConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
 
