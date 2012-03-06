@@ -126,6 +126,7 @@ static void  pg_raise_pgres( VALUE self, PGresult *result);
 static const char *str_NULL = "NULL";
 
 static VALUE rb_cPgConn;
+static VALUE rb_ePgConnectFailed;
 static VALUE rb_ePgConnError;
 static VALUE rb_ePgTransError;
 
@@ -366,7 +367,7 @@ pgconn_init( argc, argv, self)
 
     conn = PQconnectdbParams( keywords, values, 0);
     if (PQstatus( conn) == CONNECTION_BAD)
-        rb_raise( rb_ePgError, PQerrorMessage( conn));
+        rb_raise( rb_ePgConnectFailed, PQerrorMessage( conn));
     Check_Type( self, T_DATA);
     DATA_PTR(self) = conn;
     return self;
@@ -2304,6 +2305,7 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "lo_size", pgconn_losize, 1);
     rb_define_alias( rb_cPgConn, "losize", "lo_size");
 
+    rb_ePgConnectFailed = rb_define_class_under( rb_mPg, "ConnectFailed", rb_ePgError);
 #define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
     rb_ePgConnError  = ERR_DEF( "Error");
     rb_ePgTransError = ERR_DEF( "InTransaction");
