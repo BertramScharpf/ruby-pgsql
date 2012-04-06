@@ -11,6 +11,9 @@
 #include "row.h"
 
 
+#define PGSQL_VERSION "1.0"
+
+
 ID id_new;
 
 VALUE rb_mPg;
@@ -33,19 +36,13 @@ VALUE rb_ePgError;
  * Generic PostgreSQL error.
  */
 
-/********************************************************************
- *
- * Document-class: Pg::ExecError
- *
- * Error while communicating through a PostgreSQL connection.
- */
-
 void
 Init_pgsql( void)
 {
     rb_mPg = rb_define_module( "Pg");
 
-    rb_define_const( rb_mPg, "VERSION", rb_obj_freeze( rb_str_new2( "1.0")));
+    rb_define_const( rb_mPg, "VERSION",
+                                rb_obj_freeze( rb_str_new2( PGSQL_VERSION)));
 
     rb_ePgError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
 

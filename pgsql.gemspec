@@ -4,22 +4,20 @@
 
 require "rubygems"
 
-class Gem::Specification
-  RE_VERSION = /^\s*rb_define_const\(\s*\w+,\s*"VERSION",\s*.*"([^"]+)".*\);$/
-  def extract_version
-    File.open "lib/module.c" do |f|
-      f.each_line { |l|
-        l =~ RE_VERSION and return $1
-      }
-    end
-    nil
+def extract_definition name
+  re = /^\s*#\s*define\s+#{name}\s+"([0-9a-zA-Z_.-]+)"/
+  File.open "lib/module.c" do |f|
+    f.each_line { |l|
+      l =~ re and return $1
+    }
   end
+  nil
 end
 
-SPEC = Gem::Specification.new do |s|
+Gem::Specification.new do |s|
   s.name              = "pgsql"
   s.rubyforge_project = "pgsql"
-  s.version           = s.extract_version
+  s.version           = s.extract_definition "PGSQL_VERSION"
   s.summary           = "PostgreSQL-API for Ruby"
   s.description       = <<EOT
 This is not the official PostgreSQL library that was originally written by Guy
@@ -55,9 +53,5 @@ EOT
                           LICENSE
                         )
   s.rdoc_options.push   %w(--charset utf-8 --main README)
-end
-
-if $0 == __FILE__ then
-  Gem::Builder.new( SPEC).build
 end
 
