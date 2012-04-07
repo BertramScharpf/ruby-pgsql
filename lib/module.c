@@ -16,9 +16,6 @@
 
 ID id_new;
 
-VALUE rb_mPg;
-VALUE rb_ePgError;
-
 
 /********************************************************************
  *
@@ -49,7 +46,6 @@ Init_pgsql( void)
     id_new = rb_intern( "new");
 
     Init_pgsql_conn();
-    Init_pgsql_large();
     Init_pgsql_result();
     Init_pgsql_row();
 }

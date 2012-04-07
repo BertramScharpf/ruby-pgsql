@@ -25,7 +25,6 @@ static id_parameters;
 
 static VALUE pg_escape_regex;
 
-static PGconn *get_pgconn( VALUE obj);
 static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
 
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
@@ -111,13 +110,6 @@ static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_each_line( VALUE self);
 
-static VALUE pgconn_loimport( VALUE self, VALUE filename);
-static VALUE pgconn_loexport( VALUE self, VALUE lo_oid, VALUE filename);
-static VALUE pgconn_lounlink( VALUE self, VALUE lo_oid);
-static VALUE pgconn_locreate( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_loopen( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_losize( VALUE self, VALUE lo_oid);
-
 static void pgconn_cmd_set( VALUE self, VALUE command, VALUE params);
 static void pgconn_cmd_clear( VALUE self);
 
@@ -134,18 +126,6 @@ static VALUE rb_ePgTransError;
 
 int translate_results = 1;
 
-
-PGconn*
-get_pgconn( obj)
-    VALUE obj;
-{
-    PGconn *conn;
-
-    Data_Get_Struct( obj, PGconn, conn);
-    if (conn == NULL)
-        rb_raise( rb_ePgError, "not a valid connection");
-    return conn;
-}
 
 PGresult *
 pg_pqexec( conn, cmd)
@@ -2001,153 +1981,6 @@ pgconn_each_line( self)
 
 
 
-/*
- * call-seq:
- *    conn.lo_import( file) -> oid
- *
- * Import a file to a large object.  Returns an oid on success.  On
- * failure, it raises a Pg::Error exception.
- */
-VALUE
-pgconn_loimport( self, filename)
-    VALUE self, filename;
-{
-    Oid lo_oid;
-    PGconn *conn;
-
-    conn = get_pgconn( self);
-    lo_oid = lo_import( conn, StringValueCStr( filename));
-    if (lo_oid == 0)
-        pg_raise_pgconn( conn);
-    return INT2NUM( lo_oid);
-}
-
-/*
- * call-seq:
- *    conn.lo_export( oid, file )
- *
- * Saves a large object of _oid_ to a _file_.
- */
-VALUE
-pgconn_loexport( self, lo_oid, filename)
-    VALUE self, lo_oid, filename;
-{
-    int oid;
-    PGconn *conn;
-
-    oid = NUM2INT( lo_oid);
-    if (oid < 0)
-        rb_raise( rb_ePgError, "invalid large object oid %d", oid);
-    conn = get_pgconn( self);
-    if (!lo_export( conn, oid, StringValueCStr( filename)))
-        pg_raise_pgconn( conn);
-    return Qnil;
-}
-
-
-/*
- * call-seq:
- *    conn.lo_create( [mode] ) -> Pg::Large
- *    conn.lo_create( [mode] ) { |pglarge| ... } -> oid
- *
- * Returns a Pg::Large instance on success.  On failure, it raises Pg::Error
- * exception. <i>(See #lo_open for information on _mode_.)</i>
- *
- * If a block is given, the blocks result is returned.
- *
- */
-VALUE
-pgconn_locreate( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
-{
-    VALUE nmode;
-
-    rb_scan_args( argc, argv, "01", &nmode);
-    return locreate_pgconn( get_pgconn( self), nmode);
-}
-
-/*
- * call-seq:
- *    conn.lo_open( oid, [mode] ) -> Pg::Large
- *    conn.lo_open( oid, [mode] ) { |pglarge| ... } -> obj
- *
- * Open a large object of _oid_.  Returns a Pg::Large instance on success.
- * The _mode_ argument specifies the mode for the opened large object,
- * which is either +INV_READ+, or +INV_WRITE+.
- * * If _mode_ On failure, it raises a Pg::Error exception.
- * * If _mode_ is omitted, the default is +INV_READ+.
- *
- * If a block is given, the blocks result is returned.
- *
- */
-VALUE
-pgconn_loopen( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
-{
-    VALUE nmode, objid;
-
-    rb_scan_args( argc, argv, "11", &objid, &nmode);
-    return loopen_pgconn( get_pgconn( self), objid, nmode);
-}
-
-/*
- * call-seq:
- *    conn.lo_size( oid) -> num
- *
- * Determine the size of the large object in bytes.
- */
-VALUE
-pgconn_losize( self, lo_oid)
-    VALUE self;
-    VALUE lo_oid;
-{
-    PGconn *conn;
-    int oid;
-    int fd;
-    int pos, end;
-    int ret;
-
-    conn = get_pgconn( self);
-    oid = NUM2INT( lo_oid);
-    fd = lo_open( conn, oid, INV_READ);
-    if (fd < 0)
-        pg_raise_pgconn( conn);
-    pos = lo_tell( conn, fd);
-    end = lo_lseek( conn, fd, 0, SEEK_END);
-    ret = lo_close( conn, fd);
-    if (pos < 0 || end < 0 || ret < 0)
-        pg_raise_pgconn( conn);
-    return INT2NUM( end);
-}
-
-/*
- * call-seq:
- *    conn.lo_unlink( oid )
- *
- * Unlinks (deletes) the postgres large object of _oid_.
- */
-VALUE
-pgconn_lounlink( self, lo_oid)
-    VALUE self, lo_oid;
-{
-    PGconn *conn;
-    int oid;
-
-    oid = NUM2INT( lo_oid);
-    if (oid < 0)
-        rb_raise( rb_ePgError, "invalid oid %d", oid);
-    conn = get_pgconn( self);
-    if (lo_unlink( conn, oid) < 0)
-        pg_raise_pgconn( conn);
-    return Qnil;
-}
-
-
-
 void
 pgconn_cmd_set( self, command, params)
     VALUE self;
@@ -2314,19 +2147,6 @@ Init_pgsql_conn( void)
     rb_define_alias( rb_cPgConn, "get", "getline");
     rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
     rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
-
-    rb_define_method( rb_cPgConn, "lo_import", pgconn_loimport, 1);
-    rb_define_alias( rb_cPgConn, "loimport", "lo_import");
-    rb_define_method( rb_cPgConn, "lo_export", pgconn_loexport, 2);
-    rb_define_alias( rb_cPgConn, "loexport", "lo_export");
-    rb_define_method( rb_cPgConn, "lo_unlink", pgconn_lounlink, 1);
-    rb_define_alias( rb_cPgConn, "lounlink", "lo_unlink");
-    rb_define_method( rb_cPgConn, "lo_create", pgconn_locreate, -1);
-    rb_define_alias( rb_cPgConn, "locreate", "lo_create");
-    rb_define_method( rb_cPgConn, "lo_open", pgconn_loopen, -1);
-    rb_define_alias( rb_cPgConn, "loopen", "lo_open");
-    rb_define_method( rb_cPgConn, "lo_size", pgconn_losize, 1);
-    rb_define_alias( rb_cPgConn, "losize", "lo_size");
 
     rb_ePgConnectFailed = rb_define_class_under( rb_mPg, "ConnectFailed", rb_ePgError);
 #define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)

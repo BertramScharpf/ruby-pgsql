@@ -37,16 +37,20 @@ EOT
                           lib/Rakefile
                           lib/mkrf_conf
                           lib/undef.h
-                          lib/row.h
-                          lib/row.c
-                          lib/result.h
-                          lib/result.c
-                          lib/large.h
-                          lib/large.c
-                          lib/conn.h
-                          lib/conn.c
+                          lib/base.h
+                          lib/base.c
                           lib/module.h
                           lib/module.c
+                          lib/conn.h
+                          lib/conn.c
+                          lib/result.h
+                          lib/result.c
+                          lib/row.h
+                          lib/row.c
+                          lib/lo.h
+                          lib/lo.c
+                          lib/large.h
+                          lib/large.c
                         )
   s.extra_rdoc_files = %w(
                           README
