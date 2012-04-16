@@ -27,8 +27,10 @@ EOT
   s.authors           = [ "Bertram Scharpf"]
   s.email             = "<software@bertram-scharpf.de>"
   s.homepage          = "http://www.bertram-scharpf.de"
+
   s.requirements      = "PostgreSQL"
-  s.has_rdoc          = true
+  s.add_dependency      "autorake", ">=1.1"
+
   s.extensions        = "lib/mkrf_conf"
   s.executables       = %w(
                           pgbackup
@@ -56,6 +58,8 @@ EOT
                           README
                           LICENSE
                         )
+
+  s.has_rdoc          = true
   s.rdoc_options.push   %w(--charset utf-8 --main README)
 end
 
