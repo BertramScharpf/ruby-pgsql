@@ -2,8 +2,6 @@
 #  pgsql.gemspec  --  PgSql Gem specification
 #
 
-require "rubygems"
-
 def extract_definition name
   re = /^\s*#\s*define\s+#{name}\s+"([0-9a-zA-Z_.-]+)"/
   File.open "lib/module.c" do |f|
@@ -60,6 +58,6 @@ EOT
                         )
 
   s.has_rdoc          = true
-  s.rdoc_options.push   %w(--charset utf-8 --main README)
+  s.rdoc_options.concat %w(--charset utf-8 --main README)
 end
 
