@@ -1,12 +1,10 @@
 /*
  *  module.c  --  Pg module
- *
  */
 
 #include "module.h"
 
 #include "conn.h"
-#include "large.h"
 #include "result.h"
 #include "row.h"
 

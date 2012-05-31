@@ -49,8 +49,6 @@ EOT
                           lib/row.c
                           lib/lo.h
                           lib/lo.c
-                          lib/large.h
-                          lib/large.c
                         )
   s.extra_rdoc_files = %w(
                           README

@@ -1,6 +1,5 @@
 /*
  *  base.c  --  Basic variables and functions
- *
  */
 
 #include "base.h"
