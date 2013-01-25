@@ -355,9 +355,8 @@ fetch_pgresult( result, row, column)
     case TIMESTAMPTZOID:
         return rb_funcall( rb_cDateTime, id_parse, 1, ret);
     case CASHOID:
-        if (NIL_P( rb_cCurrency))
-          rb_cCurrency = rb_const_get( rb_cObject, rb_intern( "Currency"));
-        return rb_funcall( rb_cCurrency, id_parse, 1, ret);
+        return NIL_P( rb_cCurrency) ? ret :
+                rb_funcall( rb_cCurrency, id_parse, 1, ret);
     default:
         return ret;
     }
@@ -772,6 +771,7 @@ pgresult_clear( obj)
 void
 Init_pgsql_result( void)
 {
+    ID id_cur;
 #if 0
     rb_mPg = rb_define_module( "Pg");
 #endif
@@ -783,8 +783,9 @@ Init_pgsql_result( void)
     rb_require( "time");
     rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
     rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
-
-    rb_cCurrency   = Qnil;
+    id_cur = rb_intern( "Currency");
+    rb_cCurrency   = rb_const_defined( rb_cObject, id_cur) ?
+                            rb_const_get( rb_cObject, id_cur) : Qnil;
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
     rb_define_alloc_func( rb_cPgResult, pgresult_alloc);

@@ -12,6 +12,7 @@
 extern VALUE rb_cBigDecimal;
 extern VALUE rb_cDate;
 extern VALUE rb_cDateTime;
+extern VALUE rb_cCurrency;
 
 extern VALUE pgreserror_new( PGresult *ptr, VALUE cmd, VALUE args);
 

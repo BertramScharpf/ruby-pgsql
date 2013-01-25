@@ -14,6 +14,7 @@
 
 
 static ID id_to_postgres;
+static ID id_raw;
 static ID id_format;
 static ID id_iso8601;
 static ID id_rows;
@@ -677,6 +678,7 @@ pgconn_untrace( self)
  *     def format obj
  *       case obj
  *         when Currency then obj.to_s_by_locale
+ *         else               obj
  *       end
  *     end
  *   end
@@ -904,6 +906,8 @@ pgconn_stringize( self, obj)
                     result = rb_obj_as_string( obj);
                 else if   (co == rb_cDateTime)
                     result = rb_obj_as_string( obj);
+                else if   (co == rb_cCurrency && rb_respond_to( obj, id_raw))
+                    result = rb_funcall( obj, id_raw, 0);
                 else if   (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
                     StringValue( result);
@@ -1123,6 +1127,10 @@ pgconn_quote( self, obj)
                 } else if (co == rb_cDateTime) {
                     result = rb_obj_as_string( obj);
                     type = "timestamptz";
+                } else if (co == rb_cCurrency && rb_respond_to( obj, id_raw)) {
+                    result = rb_funcall( obj, id_raw, 0);
+                    StringValue( result);
+                    type = NULL;
                 } else if (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
                     StringValue( result);
@@ -2155,6 +2163,7 @@ Init_pgsql_conn( void)
 #undef ERR_DEF
 
     id_to_postgres = rb_intern( "to_postgres");
+    id_raw         = rb_intern( "raw");
     id_format      = rb_intern( "format");
     id_iso8601     = rb_intern( "iso8601");
     id_rows        = 0;
