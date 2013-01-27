@@ -841,9 +841,10 @@ stringize_array( self, result, ary)
  *   conn.stringize( obj) -> str
  *
  * This methods makes a string out of everything.  Numbers, booleans, +nil+,
- * date and time values, and even arrays will be written as PostgreSQL accepts
- * constants.  You may pass the result as a field after a +COPY+ statement.
- * This will be called internally for the parameters to +exec+, +query+ etc.
+ * date and time values, and even arrays will be written a string as PostgreSQL
+ * accepts constants.  You may pass the result as a field after a +COPY+
+ * statement. This will be called internally for the parameters to +exec+,
+ * +query+ etc.
  *
  * Any other objects will be checked whether they have a method named
  * +to_postgres+.  If that doesn't exist the object will be converted by +to_s+.
@@ -1130,7 +1131,7 @@ pgconn_quote( self, obj)
                 } else if (co == rb_cCurrency && rb_respond_to( obj, id_raw)) {
                     result = rb_funcall( obj, id_raw, 0);
                     StringValue( result);
-                    type = NULL;
+                    type = "money";
                 } else if (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
                     StringValue( result);
