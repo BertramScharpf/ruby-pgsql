@@ -19,7 +19,7 @@ VALUE rb_cCurrency;
 
 static ID id_parse;
 static ID id_index;
-
+static ID id_currency;
 
 static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
@@ -53,6 +53,15 @@ static VALUE pgreserror_hint( VALUE self);
 
 static VALUE rb_cPgResult;
 static VALUE rb_ePgResError;
+
+
+VALUE
+pg_currency_class( void)
+{
+    if (NIL_P( rb_cCurrency) && rb_const_defined( rb_cObject, id_currency))
+        rb_cCurrency = rb_const_get( rb_cObject, id_currency);
+    return rb_cCurrency;
+}
 
 
 int
@@ -355,8 +364,8 @@ fetch_pgresult( result, row, column)
     case TIMESTAMPTZOID:
         return rb_funcall( rb_cDateTime, id_parse, 1, ret);
     case CASHOID:
-        return NIL_P( rb_cCurrency) ? ret :
-                rb_funcall( rb_cCurrency, id_parse, 1, ret);
+        return RTEST( pg_currency_class()) ?
+                rb_funcall( rb_cCurrency, id_parse, 1, ret) : ret;
     default:
         return ret;
     }
@@ -771,7 +780,6 @@ pgresult_clear( obj)
 void
 Init_pgsql_result( void)
 {
-    ID id_cur;
 #if 0
     rb_mPg = rb_define_module( "Pg");
 #endif
@@ -783,9 +791,7 @@ Init_pgsql_result( void)
     rb_require( "time");
     rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
     rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
-    id_cur = rb_intern( "Currency");
-    rb_cCurrency   = rb_const_defined( rb_cObject, id_cur) ?
-                            rb_const_get( rb_cObject, id_cur) : Qnil;
+    rb_cCurrency   = Qnil;
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
     rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
@@ -841,7 +847,8 @@ Init_pgsql_result( void)
     rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
 
 
-    id_parse = rb_intern( "parse");
-    id_index = rb_intern( "index");
+    id_parse    = rb_intern( "parse");
+    id_index    = rb_intern( "index");
+    id_currency = rb_intern( "Currency");
 }
 

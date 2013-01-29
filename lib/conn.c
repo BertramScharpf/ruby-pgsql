@@ -907,7 +907,8 @@ pgconn_stringize( self, obj)
                     result = rb_obj_as_string( obj);
                 else if   (co == rb_cDateTime)
                     result = rb_obj_as_string( obj);
-                else if   (co == rb_cCurrency && rb_respond_to( obj, id_raw))
+                else if   (co == pg_currency_class() &&
+                                    rb_respond_to( obj, id_raw))
                     result = rb_funcall( obj, id_raw, 0);
                 else if   (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
@@ -1128,7 +1129,8 @@ pgconn_quote( self, obj)
                 } else if (co == rb_cDateTime) {
                     result = rb_obj_as_string( obj);
                     type = "timestamptz";
-                } else if (co == rb_cCurrency && rb_respond_to( obj, id_raw)) {
+                } else if (co == pg_currency_class() &&
+                                    rb_respond_to( obj, id_raw)) {
                     result = rb_funcall( obj, id_raw, 0);
                     StringValue( result);
                     type = "money";

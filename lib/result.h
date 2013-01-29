@@ -16,6 +16,7 @@ extern VALUE rb_cCurrency;
 
 extern VALUE pgreserror_new( PGresult *ptr, VALUE cmd, VALUE args);
 
+extern VALUE     pg_currency_class( void);
 extern int       pg_checkresult( PGresult *result);
 extern PGresult *get_pgresult( VALUE obj);
 extern VALUE     string_unescape_bytea( char *escaped);
