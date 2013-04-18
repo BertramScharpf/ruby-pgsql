@@ -5,17 +5,25 @@
 #ifndef __BASE_H
 #define __BASE_H
 
-#include <ruby.h>
-#ifdef RUBY_VM
-    #include "ruby/io.h"
-#else
+#if defined( HAVE_HEADER_RUBY_H)
+    #include <ruby.h>
+#elif defined( HAVE_HEADER_RUBY_RUBY_H)
+    #include <ruby/ruby.h>
+#endif
+#if defined( HAVE_HEADER_RUBYIO_H)
     #include "rubyio.h"
     #define rb_io_stdio_file GetWriteFile
+#elif defined( HAVE_HEADER_RUBY_IO_H)
+    #include "ruby/io.h"
 #endif
 #include "undef.h"
 
-#include <postgres.h>
-#include <libpq-fe.h>
+#ifdef HAVE_HEADER_POSTGRES_H
+    #include <postgres.h>
+#endif
+#ifdef HAVE_HEADER_LIBPQ_FE_H
+    #include <libpq-fe.h>
+#endif
 #include "undef.h"
 
 

@@ -4,7 +4,9 @@
 
 #include "lo.h"
 
-#include <libpq/libpq-fs.h>
+#ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
+    #include <libpq/libpq-fs.h>
+#endif
 
 
 typedef struct pglarge_object

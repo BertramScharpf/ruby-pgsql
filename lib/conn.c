@@ -5,13 +5,22 @@
 
 #include "conn.h"
 
-#include <st.h>
-#include <intern.h>
-
-#include <libpq/libpq-fs.h>
-
 #include "result.h"
 
+#if defined( HAVE_HEADER_ST_H)
+    #include <st.h>
+#elif defined( HAVE_HEADER_RUBY_ST_H)
+    #include <ruby/st.h>
+#endif
+#if defined( HAVE_HEADER_INTERN_H)
+    #include <intern.h>
+#elif defined( HAVE_HEADER_RUBY_INTERN_H)
+    #include <ruby/intern.h>
+#endif
+
+#ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
+    #include <libpq/libpq-fs.h>
+#endif
 
 static ID id_to_postgres;
 static ID id_raw;

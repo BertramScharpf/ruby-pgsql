@@ -7,8 +7,6 @@
 
 #include "module.h"
 
-#include <libpq-fe.h>
-
 extern VALUE rb_cBigDecimal;
 extern VALUE rb_cDate;
 extern VALUE rb_cDateTime;
