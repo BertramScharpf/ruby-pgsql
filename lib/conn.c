@@ -18,6 +18,12 @@
     #include <ruby/intern.h>
 #endif
 
+#if defined( HAVE_HEADER_RUBY_H)
+    #define RB_ERRINFO ruby_errinfo
+#elif defined( HAVE_HEADER_RUBY_RUBY_H)
+    #define RB_ERRINFO (rb_errinfo())
+#endif
+
 #ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
     #include <libpq/libpq-fs.h>
 #endif
@@ -645,7 +651,12 @@ VALUE
 pgconn_trace( self, port)
     VALUE self, port;
 {
+#if defined( HAVE_HEADER_RUBYIO_H)
     OpenFile* fp;
+    #define rb_io_stdio_file GetWriteFile
+#elif defined( HAVE_HEADER_RUBY_IO_H)
+    rb_io_t *fp;
+#endif
 
     if (TYPE( port) != T_FILE)
         rb_raise( rb_eArgError, "Not an IO object: %s",
@@ -1618,7 +1629,7 @@ rescue_transaction( self)
     VALUE self;
 {
     pg_pqexec( get_pgconn( self), rb_str_new2( "rollback;"));
-    rb_exc_raise( ruby_errinfo);
+    rb_exc_raise( RB_ERRINFO);
     return Qnil;
 }
 
@@ -1690,7 +1701,7 @@ rescue_subtransaction( ary)
     rb_str_buf_cat2( cmd, ";");
     pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), cmd);
 
-    rb_exc_raise( ruby_errinfo);
+    rb_exc_raise( RB_ERRINFO);
     return Qnil;
 }
 
@@ -1772,7 +1783,7 @@ put_end( self)
     conn = get_pgconn( self);
     /*
      * I would like to hand over something like
-     *     RSTRING_PTR( rb_obj_as_string( ruby_errinfo))
+     *     RSTRING_PTR( rb_obj_as_string( RB_ERRINFO))
      * here but when execution is inside a rescue block
      * the error info will be non-null even though the
      * exception just has been caught.
@@ -1783,7 +1794,7 @@ put_end( self)
         pg_raise_pgconn( conn);
 
     while ((res = PQgetResult( conn)) != NULL) {
-        if (pg_checkresult( res) < 0 && NIL_P( ruby_errinfo))
+        if (pg_checkresult( res) < 0 && NIL_P( RB_ERRINFO))
             pg_raise_pgres( self, res);
         PQclear( res);
     }
@@ -1884,7 +1895,7 @@ get_end( self)
     conn = get_pgconn( self);
 
     while ((res = PQgetResult( conn)) != NULL) {
-        if (pg_checkresult( res) < 0 && NIL_P( ruby_errinfo))
+        if (pg_checkresult( res) < 0 && NIL_P( RB_ERRINFO))
             pg_raise_pgres( self, res);
         PQclear( res);
     }

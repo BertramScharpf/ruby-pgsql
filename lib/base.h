@@ -12,7 +12,6 @@
 #endif
 #if defined( HAVE_HEADER_RUBYIO_H)
     #include "rubyio.h"
-    #define rb_io_stdio_file GetWriteFile
 #elif defined( HAVE_HEADER_RUBY_IO_H)
     #include "ruby/io.h"
 #endif
