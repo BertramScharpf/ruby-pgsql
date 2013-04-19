@@ -18,10 +18,10 @@
     #include <ruby/intern.h>
 #endif
 
-#if defined( HAVE_HEADER_RUBY_H)
-    #define RB_ERRINFO ruby_errinfo
-#elif defined( HAVE_HEADER_RUBY_RUBY_H)
+#ifdef HAVE_FUNC_RB_ERRINFO
     #define RB_ERRINFO (rb_errinfo())
+#else
+    #define RB_ERRINFO ruby_errinfo
 #endif
 
 #ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
@@ -651,11 +651,11 @@ VALUE
 pgconn_trace( self, port)
     VALUE self, port;
 {
-#if defined( HAVE_HEADER_RUBYIO_H)
+#ifdef HAVE_FUNC_RB_IO_STDIO_FILE
+    rb_io_t *fp;
+#else
     OpenFile* fp;
     #define rb_io_stdio_file GetWriteFile
-#elif defined( HAVE_HEADER_RUBY_IO_H)
-    rb_io_t *fp;
 #endif
 
     if (TYPE( port) != T_FILE)

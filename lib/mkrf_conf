@@ -34,5 +34,8 @@ Autorake.configure {
   have_header "libpq/libpq-fs.h"
   have_header "catalog/pg_type.h"
 
+  have_func "rb_errinfo"
+  have_func "rb_io_stdio_file"
+
 }
 
