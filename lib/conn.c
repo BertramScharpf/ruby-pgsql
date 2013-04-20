@@ -306,10 +306,32 @@ connstr_passwd( VALUE self, VALUE params)
 }
 
 
+void
+free_pgconn( struct pgconn_data *ptr)
+{
+    PQfinish( ptr->conn);
+    free( ptr);
+}
+
+
 VALUE
 pgconn_alloc( VALUE cls)
 {
-    return Data_Wrap_Struct( cls, 0, &PQfinish, NULL);
+    struct pgconn_data *c;
+
+    return Data_Make_Struct( cls, struct pgconn_data, 0, &free_pgconn, c);
+    c->conn = NULL;
+}
+
+PGconn *
+get_pgconn( VALUE obj)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( obj, struct pgconn_data, c);
+    if (c->conn == NULL)
+        rb_raise( rb_ePgError, "not a valid connection");
+    return c->conn;
 }
 
 /*
@@ -347,7 +369,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     int l;
     const char **keywords, **values;
     const char **ptrs[ 2];
-    PGconn *conn = NULL;
+    struct pgconn_data *c;
 
     if (rb_scan_args( argc, argv, "02", &str, &params) < 2)
         if (TYPE( str) != T_STRING) {
@@ -372,11 +394,11 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     st_foreach( RHASH_TBL( params), set_connect_params, (st_data_t) ptrs);
     *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
 
-    conn = PQconnectdbParams( keywords, values, 0);
-    if (PQstatus( conn) == CONNECTION_BAD)
-        rb_raise( rb_ePgConnectFailed, PQerrorMessage( conn));
-    Check_Type( self, T_DATA);
-    DATA_PTR(self) = conn;
+    Data_Get_Struct( self, struct pgconn_data, c);
+    c->conn = PQconnectdbParams( keywords, values, 0);
+    if (PQstatus( c->conn) == CONNECTION_BAD)
+        rb_raise( rb_ePgConnectFailed, PQerrorMessage( c->conn));
+
     return self;
 }
 
@@ -389,8 +411,11 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
 VALUE
 pgconn_close( VALUE obj)
 {
-    PQfinish( get_pgconn( obj));
-    DATA_PTR( obj) = NULL;
+    struct pgconn_data *c;
+
+    Data_Get_Struct( obj, struct pgconn_data, c);
+    PQfinish( c->conn);
+    c->conn = NULL;
     return Qnil;
 }
 
@@ -832,7 +857,8 @@ stringize_array( VALUE self, VALUE result, VALUE ary)
  * +query+ etc.
  *
  * Any other objects will be checked whether they have a method named
- * +to_postgres+.  If that doesn't exist the object will be converted by +to_s+.
+ * +to_postgres+.  If that doesn't exist the object will be converted by
+ * +to_s+.
  *
  * If you are quoting into a SQL statement please don't do something like
  * <code>"insert into ... (E'#{conn.stringize obj}', ...);"</code>.  Use
@@ -954,7 +980,8 @@ pgconn_stringize_line( VALUE self, VALUE ary)
             rb_str_cat( ret, "\\N", 2);
         else {
             s = pgconn_stringize( self, *p);
-            rb_block_call( s, id_gsub_bang, 1, &pg_escape_regex, gsub_escape_i, Qnil);
+            rb_block_call( s, id_gsub_bang, 1, &pg_escape_regex,
+                                                    gsub_escape_i, Qnil);
             rb_str_cat( ret, RSTRING_PTR( s), RSTRING_LEN( s));
         }
         if (--l > 0)
@@ -1060,7 +1087,8 @@ quote_array( VALUE self, VALUE result, VALUE ary)
  *   conn.exec "insert into ... (#{conn.quote obj}, ...);"
  *
  * Your self-defined classes will be checked whether they have a method named
- * +to_postgres+.  If that doesn't exist the object will be converted by +to_s+.
+ * +to_postgres+.  If that doesn't exist the object will be converted by
+ * +to_s+.
  *
  * Call Pg::Conn#quote_bytea if you want to tell your string is a byte array.
  */
@@ -1589,7 +1617,7 @@ pgconn_transaction( int argc, VALUE *argv, VALUE self)
     p = 0;
     if (!NIL_P( ser)) {
         rb_str_buf_cat2( cmd, " isolation level ");
-        rb_str_buf_cat2( cmd, (RTEST(ser) ? "serializable" : "read committed"));
+        rb_str_buf_cat2( cmd, RTEST(ser) ? "serializable" : "read committed");
         p++;
     }
     if (!NIL_P( ro)) {
@@ -1984,7 +2012,8 @@ Init_pgsql_conn( void)
     rb_define_singleton_method( rb_cPgConn, "translate_results=",
                                            pgconn_s_translate_results_set, 1);
 
-#define CONN_DEF( c) rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
+#define CONN_DEF( c) \
+            rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
     CONN_DEF( OK);
     CONN_DEF( BAD);
 #undef CONN_DEF
@@ -2032,10 +2061,12 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
     rb_define_alias( rb_cPgConn, "q", "quote_all");
 
-    rb_define_method( rb_cPgConn, "quote_identifier", pgconn_quote_identifier, 1);
+    rb_define_method( rb_cPgConn, "quote_identifier",
+                                                pgconn_quote_identifier, 1);
     rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
 
-    rb_define_method( rb_cPgConn, "client_encoding", pgconn_client_encoding, 0);
+    rb_define_method( rb_cPgConn, "client_encoding",
+                                                pgconn_client_encoding, 0);
     rb_define_method( rb_cPgConn, "set_client_encoding",
                                                pgconn_set_client_encoding, 1);
 
@@ -2049,7 +2080,8 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
     rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
 
-#define TRANS_DEF( c) rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
+#define TRANS_DEF( c) \
+            rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
     TRANS_DEF( IDLE);
     TRANS_DEF( ACTIVE);
     TRANS_DEF( INTRANS);
@@ -2071,7 +2103,8 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
     rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
 
-    rb_ePgConnectFailed = rb_define_class_under( rb_mPg, "ConnectFailed", rb_ePgError);
+    rb_ePgConnectFailed = rb_define_class_under( rb_mPg, "ConnectFailed",
+                                                                rb_ePgError);
 #define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
     rb_ePgConnError  = ERR_DEF( "Error");
     rb_ePgTransError = ERR_DEF( "InTransaction");

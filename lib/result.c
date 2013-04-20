@@ -627,7 +627,8 @@ pgresult_getvalue_byname( VALUE obj, VALUE tup_num, VALUE field_name)
  *
  * Returns the (String) length of the field in bytes.
  *
- * Equivalent to <code>res.value(<i>tup_num</i>,<i>field_num</i>).length</code>.
+ * Equivalent to
+ * <code>res.value(<i>tup_num</i>,<i>field_num</i>).length</code>.
  */
 VALUE
 pgresult_getlength( VALUE obj, VALUE tup_num, VALUE field_num)
@@ -646,7 +647,8 @@ pgresult_getlength( VALUE obj, VALUE tup_num, VALUE field_num)
  *
  * Returns +true+ if the specified value is +nil+; +false+ otherwise.
  *
- * Equivalent to <code>res.value(<i>tup_num</i>,<i>field_num</i>)==+nil+</code>.
+ * Equivalent to
+ * <code>res.value(<i>tup_num</i>,<i>field_num</i>)==+nil+</code>.
  */
 VALUE
 pgresult_getisnull( VALUE obj, VALUE tup_num, VALUE field_num)
@@ -796,7 +798,8 @@ Init_pgsql_result( void)
     rb_define_alias( rb_cPgResult, "close", "clear");
 
 
-    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
+    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error",
+                                                                rb_ePgError);
     rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
 
     rb_define_attr( rb_ePgResError, "command",    1, 0);

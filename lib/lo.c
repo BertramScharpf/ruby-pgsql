@@ -4,20 +4,12 @@
 
 #include "lo.h"
 
+#include "conn.h"
+
+
 #ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
     #include <libpq/libpq-fs.h>
 #endif
-
-
-typedef struct pglarge_object
-{
-    PGconn *pgconn;
-    Oid     lo_oid;
-    int     lo_fd;
-    char   *buf;
-    int     len;
-    int     rest;
-} PGlarge;
 
 
 static VALUE pgconn_loimport( VALUE self, VALUE filename);
@@ -31,15 +23,15 @@ static VALUE locreate_pgconn( PGconn *conn, VALUE nmode);
 static VALUE loopen_pgconn(   PGconn *conn, VALUE nmode, VALUE objid);
 
 
-static PGlarge *get_pglarge( VALUE obj);
-static VALUE    loopen_int( PGconn *conn, int objid, int nmode);
-static void     free_pglarge( PGlarge *ptr);
-static int      large_read(  PGlarge *pglarge, char *buf, int len);
-static int      large_tell(  PGlarge *pglarge);
-static int      large_lseek( PGlarge *pglarge, int offset, int whence);
-static VALUE    loread_all( VALUE self);
-static VALUE    pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd);
-static void     freebuf_rewind( PGlarge *ptr, int warn);
+static VALUE loopen_int( PGconn *conn, int objid, int nmode);
+static void  free_pglarge( struct pglarge_data *ptr);
+static int   large_read(  struct pglarge_data *pglarge, char *buf, int len);
+static int   large_tell(  struct pglarge_data *pglarge);
+static int   large_lseek( struct pglarge_data *pglarge,
+                                                int offset, int whence);
+static VALUE loread_all( VALUE self);
+static VALUE pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd);
+static void  freebuf_rewind( struct pglarge_data *ptr, int warn);
 
 static VALUE pglarge_oid( VALUE self);
 static VALUE pglarge_close( VALUE self);
@@ -190,15 +182,6 @@ pgconn_losize( VALUE self, VALUE lo_oid)
 
 
 
-PGlarge *
-get_pglarge( VALUE obj)
-{
-    PGlarge *pglarge;
-
-    Data_Get_Struct( obj, PGlarge, pglarge);
-    return pglarge;
-}
-
 VALUE
 loopen_int( PGconn *conn, int lo_oid, int mode)
 {
@@ -214,62 +197,62 @@ loopen_int( PGconn *conn, int lo_oid, int mode)
 }
 
 void
-free_pglarge( PGlarge *ptr)
+free_pglarge( struct pglarge_data *ptr)
 {
-    if (ptr->lo_fd > 0)
-        lo_close( ptr->pgconn, ptr->lo_fd);
+    if (ptr->lo_fd >= 0)
+        lo_close( ptr->conn, ptr->lo_fd);
     if (ptr->buf != NULL)
         xfree( ptr->buf);
     free( ptr);
 }
 
 int
-large_read( PGlarge *pglarge, char *buf, int len)
+large_read( struct pglarge_data *pglarge, char *buf, int len)
 {
     int siz;
 
-    siz = lo_read( pglarge->pgconn, pglarge->lo_fd, buf, len);
+    siz = lo_read( pglarge->conn, pglarge->lo_fd, buf, len);
     if (siz == -1)
-        pg_raise_pgconn( pglarge->pgconn);
+        pg_raise_pgconn( pglarge->conn);
     return siz;
 }
 
 int
-large_tell( PGlarge *pglarge)
+large_tell( struct pglarge_data *pglarge)
 {
     int pos;
 
-    pos = lo_tell( pglarge->pgconn, pglarge->lo_fd);
+    pos = lo_tell( pglarge->conn, pglarge->lo_fd);
     if (pos == -1)
-        pg_raise_pgconn( pglarge->pgconn);
+        pg_raise_pgconn( pglarge->conn);
     return pos;
 }
 
 int
-large_lseek( PGlarge *pglarge, int offset, int whence)
+large_lseek( struct pglarge_data *pglarge, int offset, int whence)
 {
     int ret;
 
-    ret = lo_lseek( pglarge->pgconn, pglarge->lo_fd, offset, whence);
+    ret = lo_lseek( pglarge->conn, pglarge->lo_fd, offset, whence);
     if (ret == -1)
-        pg_raise_pgconn( pglarge->pgconn);
+        pg_raise_pgconn( pglarge->conn);
     return ret;
 }
 
 VALUE
 loread_all( VALUE self)
 {
-    PGlarge *pglarge;
+    struct pglarge_data *l;
     VALUE str;
     long bytes = 0;
     int n;
 
-    pglarge = get_pglarge( self);
-    freebuf_rewind( pglarge, 1);
+    Data_Get_Struct( self, struct pglarge_data, l);
+    freebuf_rewind( l, 1);
     str = rb_tainted_str_new( 0, 0);
     do {
         rb_str_resize( str, bytes + BUFSIZ);
-        n = large_read( pglarge, RSTRING_PTR( str) + bytes, BUFSIZ);
+        n = large_read( l, RSTRING_PTR( str) + bytes, BUFSIZ);
         bytes += n;
     } while (n >= BUFSIZ);
     rb_str_resize( str, bytes);
@@ -280,13 +263,14 @@ VALUE
 pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd)
 {
     VALUE obj;
-    PGlarge *pglarge;
+    struct pglarge_data *l;
 
-    obj = Data_Make_Struct( rb_cPgLarge, PGlarge, 0, free_pglarge, pglarge);
-    pglarge->pgconn = conn;
-    pglarge->lo_oid = lo_oid;
-    pglarge->lo_fd = lo_fd;
-    pglarge->buf = NULL;
+    obj = Data_Make_Struct( rb_cPgLarge, struct pglarge_data,
+                                            0, free_pglarge, l);
+    l->conn = conn;
+    l->lo_oid = lo_oid;
+    l->lo_fd = lo_fd;
+    l->buf = NULL;
 
     return obj;
 }
@@ -326,10 +310,10 @@ loopen_pgconn( PGconn *conn, VALUE objid, VALUE nmode)
 VALUE
 pglarge_oid( VALUE self)
 {
-    PGlarge *pglarge;
+    struct pglarge_data *l;
 
-    pglarge = get_pglarge( self);
-    return INT2NUM( pglarge->lo_oid);
+    Data_Get_Struct( self, struct pglarge_data, l);
+    return INT2NUM( l->lo_oid);
 }
 
 /*
@@ -341,17 +325,14 @@ pglarge_oid( VALUE self)
 VALUE
 pglarge_close( VALUE self)
 {
-    PGlarge *pglarge;
+    struct pglarge_data *l;
     int ret;
 
-    pglarge = get_pglarge( self);
-    if (pglarge != NULL) {
-        ret = lo_close( pglarge->pgconn, pglarge->lo_fd);
-        if (ret < 0 &&
-                PQtransactionStatus( pglarge->pgconn) != PQTRANS_INERROR) {
-            pg_raise_pgconn( pglarge->pgconn);
-        }
-        DATA_PTR( self) = NULL;
+    Data_Get_Struct( self, struct pglarge_data, l);
+    ret = lo_close( l->conn, l->lo_fd);
+    if (ret < 0 &&
+            PQtransactionStatus( l->conn) != PQTRANS_INERROR) {
+        pg_raise_pgconn( l->conn);
     }
     return Qnil;
 }
@@ -368,7 +349,7 @@ VALUE
 pglarge_read( int argc, VALUE *argv, VALUE self)
 {
     int len;
-    PGlarge *pglarge;
+    struct pglarge_data *l;
     char *buf;
     int siz;
     VALUE length;
@@ -381,10 +362,10 @@ pglarge_read( int argc, VALUE *argv, VALUE self)
     if (len < 0)
         rb_raise( rb_ePgError, "negative length %d given", len);
 
-    pglarge = get_pglarge( self);
-    freebuf_rewind( pglarge, 1);
+    Data_Get_Struct( self, struct pglarge_data, l);
+    freebuf_rewind( l, 1);
     buf = ALLOCA_N( char, len);
-    siz = large_read( pglarge, buf, len);
+    siz = large_read( l, buf, len);
     return siz == 0 ? Qnil : rb_tainted_str_new( buf, siz);
 }
 
@@ -397,7 +378,7 @@ pglarge_read( int argc, VALUE *argv, VALUE self)
 VALUE
 pglarge_each_line( VALUE self)
 {
-    PGlarge *q;
+    struct pglarge_data *q;
     VALUE line;
     int s;
     int j, l;
@@ -405,7 +386,7 @@ pglarge_each_line( VALUE self)
     int nl;
 #define EACH_LINE_BS BUFSIZ
 
-    q = get_pglarge( self);
+    Data_Get_Struct( self, struct pglarge_data, q);
     RETURN_ENUMERATOR( self, 0, 0);
     line = rb_tainted_str_new( NULL, 0);
     /* The code below really looks weird but is thoroughly tested. */
@@ -451,12 +432,15 @@ pglarge_each_line( VALUE self)
 VALUE
 pglarge_rewind( VALUE self)
 {
-    freebuf_rewind( get_pglarge( self), 0);
+    struct pglarge_data *l;
+
+    Data_Get_Struct( self, struct pglarge_data, l);
+    freebuf_rewind( l, 0);
     return Qnil;
 }
 
 void
-freebuf_rewind( PGlarge *ptr, int warn)
+freebuf_rewind( struct pglarge_data *ptr, int warn)
 {
     int ret;
 
@@ -479,16 +463,16 @@ freebuf_rewind( PGlarge *ptr, int warn)
 VALUE
 pglarge_write( VALUE self, VALUE buffer)
 {
-    PGlarge *pglarge;
+    struct pglarge_data *l;
     int n;
 
     StringValue( buffer);
-    pglarge = get_pglarge( self);
-    freebuf_rewind( pglarge, 1);
-    n = lo_write( pglarge->pgconn, pglarge->lo_fd,
+    Data_Get_Struct( self, struct pglarge_data, l);
+    freebuf_rewind( l, 1);
+    n = lo_write( l->conn, l->lo_fd,
                   RSTRING_PTR( buffer), RSTRING_LEN( buffer));
     if (n == -1)
-        pg_raise_pgconn( pglarge->pgconn);
+        pg_raise_pgconn( l->conn);
     return INT2FIX( n);
 }
 
@@ -503,11 +487,11 @@ pglarge_write( VALUE self, VALUE buffer)
 VALUE
 pglarge_seek( VALUE self, VALUE offset, VALUE whence)
 {
-    PGlarge *pglarge;
+    struct pglarge_data *l;
 
-    pglarge = get_pglarge( self);
-    freebuf_rewind( pglarge, 1);
-    return INT2NUM( large_lseek( pglarge, NUM2INT( offset), NUM2INT( whence)));
+    Data_Get_Struct( self, struct pglarge_data, l);
+    freebuf_rewind( l, 1);
+    return INT2NUM( large_lseek( l, NUM2INT( offset), NUM2INT( whence)));
 }
 
 /*
@@ -519,13 +503,13 @@ pglarge_seek( VALUE self, VALUE offset, VALUE whence)
 VALUE
 pglarge_tell( VALUE self)
 {
-    PGlarge *pglarge;
+    struct pglarge_data *l;
     int r;
 
-    pglarge = get_pglarge( self);
-    r = INT2NUM( large_tell( pglarge));
-    if (pglarge->buf != NULL)
-        r -= pglarge->len - pglarge->rest;
+    Data_Get_Struct( self, struct pglarge_data, l);
+    r = INT2NUM( large_tell( l));
+    if (l->buf != NULL)
+        r -= l->len - l->rest;
     return r;
 }
 
@@ -538,12 +522,13 @@ pglarge_tell( VALUE self)
 VALUE
 pglarge_size( VALUE self)
 {
-    PGlarge *pglarge = get_pglarge( self);
+    struct pglarge_data *l;
     int start, end;
 
-    start = large_tell( pglarge);
-    end = large_lseek( pglarge, 0, SEEK_END);
-    large_lseek( pglarge, start, SEEK_SET);
+    Data_Get_Struct( self, struct pglarge_data, l);
+    start = large_tell( l);
+    end = large_lseek( l, 0, SEEK_END);
+    large_lseek( l, start, SEEK_SET);
     return INT2NUM( end);
 }
 

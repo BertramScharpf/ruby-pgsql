@@ -29,7 +29,5 @@
 extern VALUE rb_mPg;
 extern VALUE rb_ePgError;
 
-extern PGconn *get_pgconn( VALUE obj);
-
 #endif
 
