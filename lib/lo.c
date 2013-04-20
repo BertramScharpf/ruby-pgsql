@@ -63,8 +63,7 @@ static VALUE rb_cPgLarge;
  * failure, it raises a Pg::Error exception.
  */
 VALUE
-pgconn_loimport( self, filename)
-    VALUE self, filename;
+pgconn_loimport( VALUE self, VALUE filename)
 {
     Oid lo_oid;
     PGconn *conn;
@@ -83,8 +82,7 @@ pgconn_loimport( self, filename)
  * Saves a large object of _oid_ to a _file_.
  */
 VALUE
-pgconn_loexport( self, lo_oid, filename)
-    VALUE self, lo_oid, filename;
+pgconn_loexport( VALUE self, VALUE lo_oid, VALUE filename)
 {
     int oid;
     PGconn *conn;
@@ -105,8 +103,7 @@ pgconn_loexport( self, lo_oid, filename)
  * Unlinks (deletes) the postgres large object of _oid_.
  */
 VALUE
-pgconn_lounlink( self, lo_oid)
-    VALUE self, lo_oid;
+pgconn_lounlink( VALUE self, VALUE lo_oid)
 {
     PGconn *conn;
     int oid;
@@ -132,10 +129,7 @@ pgconn_lounlink( self, lo_oid)
  *
  */
 VALUE
-pgconn_locreate( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_locreate( int argc, VALUE *argv, VALUE self)
 {
     VALUE nmode;
 
@@ -158,10 +152,7 @@ pgconn_locreate( argc, argv, self)
  *
  */
 VALUE
-pgconn_loopen( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_loopen( int argc, VALUE *argv, VALUE self)
 {
     VALUE nmode, objid;
 
@@ -176,9 +167,7 @@ pgconn_loopen( argc, argv, self)
  * Determine the size of the large object in bytes.
  */
 VALUE
-pgconn_losize( self, lo_oid)
-    VALUE self;
-    VALUE lo_oid;
+pgconn_losize( VALUE self, VALUE lo_oid)
 {
     PGconn *conn;
     int oid;
@@ -202,8 +191,7 @@ pgconn_losize( self, lo_oid)
 
 
 PGlarge *
-get_pglarge( obj)
-    VALUE obj;
+get_pglarge( VALUE obj)
 {
     PGlarge *pglarge;
 
@@ -212,10 +200,7 @@ get_pglarge( obj)
 }
 
 VALUE
-loopen_int( conn, lo_oid, mode)
-    PGconn *conn;
-    int lo_oid;
-    int mode;
+loopen_int( PGconn *conn, int lo_oid, int mode)
 {
     int fd;
     VALUE lob;
@@ -229,8 +214,7 @@ loopen_int( conn, lo_oid, mode)
 }
 
 void
-free_pglarge( ptr)
-    PGlarge *ptr;
+free_pglarge( PGlarge *ptr)
 {
     if (ptr->lo_fd > 0)
         lo_close( ptr->pgconn, ptr->lo_fd);
@@ -240,10 +224,7 @@ free_pglarge( ptr)
 }
 
 int
-large_read( pglarge, buf, len)
-    PGlarge *pglarge;
-    char *buf;
-    int len;
+large_read( PGlarge *pglarge, char *buf, int len)
 {
     int siz;
 
@@ -254,8 +235,7 @@ large_read( pglarge, buf, len)
 }
 
 int
-large_tell( pglarge)
-    PGlarge *pglarge;
+large_tell( PGlarge *pglarge)
 {
     int pos;
 
@@ -266,9 +246,7 @@ large_tell( pglarge)
 }
 
 int
-large_lseek( pglarge, offset, whence)
-    PGlarge *pglarge;
-    int offset, whence;
+large_lseek( PGlarge *pglarge, int offset, int whence)
 {
     int ret;
 
@@ -279,8 +257,7 @@ large_lseek( pglarge, offset, whence)
 }
 
 VALUE
-loread_all( self)
-    VALUE self;
+loread_all( VALUE self)
 {
     PGlarge *pglarge;
     VALUE str;
@@ -300,10 +277,7 @@ loread_all( self)
 }
 
 VALUE
-pglarge_new( conn, lo_oid, lo_fd)
-    PGconn *conn;
-    Oid lo_oid;
-    int lo_fd;
+pglarge_new( PGconn *conn, Oid lo_oid, int lo_fd)
 {
     VALUE obj;
     PGlarge *pglarge;
@@ -318,9 +292,7 @@ pglarge_new( conn, lo_oid, lo_fd)
 }
 
 VALUE
-locreate_pgconn( conn, nmode)
-    PGconn *conn;
-    VALUE nmode;
+locreate_pgconn( PGconn *conn, VALUE nmode)
 {
     int mode;
     Oid lo_oid;
@@ -333,10 +305,7 @@ locreate_pgconn( conn, nmode)
 }
 
 VALUE
-loopen_pgconn( conn, objid, nmode)
-    PGconn *conn;
-    VALUE objid;
-    VALUE nmode;
+loopen_pgconn( PGconn *conn, VALUE objid, VALUE nmode)
 {
     Oid lo_oid;
     int mode;
@@ -355,8 +324,7 @@ loopen_pgconn( conn, objid, nmode)
  * Returns the large object's +oid+.
  */
 VALUE
-pglarge_oid( self)
-    VALUE self;
+pglarge_oid( VALUE self)
 {
     PGlarge *pglarge;
 
@@ -371,8 +339,7 @@ pglarge_oid( self)
  * Closes a large object.
  */
 VALUE
-pglarge_close( self)
-    VALUE self;
+pglarge_close( VALUE self)
 {
     PGlarge *pglarge;
     int ret;
@@ -398,10 +365,7 @@ pglarge_close( self)
  * If no _length_ is given, reads all data.
  */
 VALUE
-pglarge_read( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pglarge_read( int argc, VALUE *argv, VALUE self)
 {
     int len;
     PGlarge *pglarge;
@@ -431,8 +395,7 @@ pglarge_read( argc, argv, self)
  * Reads a large object line by line.
  */
 VALUE
-pglarge_each_line( self)
-    VALUE self;
+pglarge_each_line( VALUE self)
 {
     PGlarge *q;
     VALUE line;
@@ -486,17 +449,14 @@ pglarge_each_line( self)
  * Rewind after an aborted +each_line+.
  */
 VALUE
-pglarge_rewind( self)
-    VALUE self;
+pglarge_rewind( VALUE self)
 {
     freebuf_rewind( get_pglarge( self), 0);
     return Qnil;
 }
 
 void
-freebuf_rewind( ptr, warn)
-    PGlarge *ptr;
-    int warn;
+freebuf_rewind( PGlarge *ptr, int warn)
 {
     int ret;
 
@@ -517,8 +477,7 @@ freebuf_rewind( ptr, warn)
  * Returns the number of bytes written.
  */
 VALUE
-pglarge_write( self, buffer)
-    VALUE self, buffer;
+pglarge_write( VALUE self, VALUE buffer)
 {
     PGlarge *pglarge;
     int n;
@@ -542,8 +501,7 @@ pglarge_write( self, buffer)
  * (Or 0, 1, or 2.)
  */
 VALUE
-pglarge_seek( self, offset, whence)
-    VALUE self, offset, whence;
+pglarge_seek( VALUE self, VALUE offset, VALUE whence)
 {
     PGlarge *pglarge;
 
@@ -559,8 +517,7 @@ pglarge_seek( self, offset, whence)
  * Returns the current position of the large object pointer.
  */
 VALUE
-pglarge_tell( self)
-    VALUE self;
+pglarge_tell( VALUE self)
 {
     PGlarge *pglarge;
     int r;
@@ -579,8 +536,7 @@ pglarge_tell( self)
  * Returns the size of the large object.
  */
 VALUE
-pglarge_size( self)
-    VALUE self;
+pglarge_size( VALUE self)
 {
     PGlarge *pglarge = get_pglarge( self);
     int start, end;

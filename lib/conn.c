@@ -144,9 +144,7 @@ int translate_results = 1;
 
 
 PGresult *
-pg_pqexec( conn, cmd)
-    PGconn *conn;
-    VALUE cmd;
+pg_pqexec( PGconn *conn, VALUE cmd)
 {
     PGresult *result;
 
@@ -172,10 +170,7 @@ pg_pqexec( conn, cmd)
  * the connection will be closed afterwards.
  */
 VALUE
-pgconn_s_connect( argc, argv, cls)
-    int argc;
-    VALUE *argv;
-    VALUE cls;
+pgconn_s_connect( int argc, VALUE *argv, VALUE cls)
 {
     VALUE pgconn;
 
@@ -194,8 +189,7 @@ pgconn_s_connect( argc, argv, cls)
  *
  */
 VALUE
-pgconn_s_parse( cls, str)
-    VALUE cls, str;
+pgconn_s_parse( VALUE cls, VALUE str)
 {
     VALUE params;
 
@@ -214,8 +208,7 @@ pgconn_s_parse( cls, str)
  *
  */
 VALUE
-pgconn_s_translate_results_set( cls, fact)
-    VALUE cls, fact;
+pgconn_s_translate_results_set( VALUE cls, VALUE fact)
 {
     translate_results = RTEST( fact) ? 1 : 0;
     return Qnil;
@@ -314,8 +307,7 @@ connstr_passwd( VALUE self, VALUE params)
 
 
 VALUE
-pgconn_alloc( cls)
-    VALUE cls;
+pgconn_alloc( VALUE cls)
 {
     return Data_Wrap_Struct( cls, 0, &PQfinish, NULL);
 }
@@ -349,10 +341,7 @@ pgconn_alloc( cls)
  * On failure, a +Pg::Error+ exception will be raised.
  */
 VALUE
-pgconn_init( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_init( int argc, VALUE *argv, VALUE self)
 {
     VALUE str, params;
     int l;
@@ -398,8 +387,7 @@ pgconn_init( argc, argv, self)
  * Closes the backend connection.
  */
 VALUE
-pgconn_close( obj)
-    VALUE obj;
+pgconn_close( VALUE obj)
 {
     PQfinish( get_pgconn( obj));
     DATA_PTR( obj) = NULL;
@@ -414,8 +402,7 @@ pgconn_close( obj)
  * and tries to re-connect.
  */
 VALUE
-pgconn_reset( obj)
-    VALUE obj;
+pgconn_reset( VALUE obj)
 {
     PQreset( get_pgconn( obj));
     return obj;
@@ -430,8 +417,7 @@ pgconn_reset( obj)
  * 1.0 is obsolete and not supported by libpq.)
  */
 VALUE
-pgconn_protocol_version( obj)
-    VALUE obj;
+pgconn_protocol_version( VALUE obj)
 {
     return INT2NUM( PQprotocolVersion( get_pgconn( obj)));
 }
@@ -447,8 +433,7 @@ pgconn_protocol_version( obj)
  * bad.
  */
 VALUE
-pgconn_server_version( obj)
-    VALUE obj;
+pgconn_server_version( VALUE obj)
 {
     return INT2NUM( PQserverVersion( get_pgconn( obj)));
 }
@@ -460,8 +445,7 @@ pgconn_server_version( obj)
  * Returns the connected database name.
  */
 VALUE
-pgconn_db( obj)
-    VALUE obj;
+pgconn_db( VALUE obj)
 {
     char *db = PQdb( get_pgconn( obj));
     return db == NULL ? Qnil : rb_tainted_str_new2( db);
@@ -474,8 +458,7 @@ pgconn_db( obj)
  * Returns the connected server name.
  */
 VALUE
-pgconn_host( obj)
-    VALUE obj;
+pgconn_host( VALUE obj)
 {
     char *host = PQhost( get_pgconn( obj));
     return host == NULL ? Qnil : rb_tainted_str_new2( host);
@@ -488,8 +471,7 @@ pgconn_host( obj)
  * Returns backend option string.
  */
 VALUE
-pgconn_options( obj)
-    VALUE obj;
+pgconn_options( VALUE obj)
 {
     char *options = PQoptions( get_pgconn( obj));
     return options == NULL ? Qnil : rb_tainted_str_new2( options);
@@ -502,8 +484,7 @@ pgconn_options( obj)
  * Returns the connected server port number.
  */
 VALUE
-pgconn_port( obj)
-    VALUE obj;
+pgconn_port( VALUE obj)
 {
     char* port = PQport( get_pgconn( obj));
     return port == NULL ? Qnil : INT2NUM( atol( port));
@@ -516,8 +497,7 @@ pgconn_port( obj)
  * Returns the connected pgtty.
  */
 VALUE
-pgconn_tty( obj)
-    VALUE obj;
+pgconn_tty( VALUE obj)
 {
     char *tty = PQtty( get_pgconn( obj));
     return tty == NULL ? Qnil : rb_tainted_str_new2( tty);
@@ -530,8 +510,7 @@ pgconn_tty( obj)
  * Returns the authenticated user name.
  */
 VALUE
-pgconn_user( obj)
-    VALUE obj;
+pgconn_user( VALUE obj)
 {
     char *user = PQuser( get_pgconn( obj));
     return user == NULL ? Qnil : rb_tainted_str_new2( user);
@@ -544,8 +523,7 @@ pgconn_user( obj)
  * This may return the values +CONNECTION_OK+ or +CONNECTION_BAD+.
  */
 VALUE
-pgconn_status( obj)
-    VALUE obj;
+pgconn_status( VALUE obj)
 {
     return INT2NUM( PQstatus( get_pgconn( obj)));
 }
@@ -557,17 +535,14 @@ pgconn_status( obj)
  * Returns the error message about connection.
  */
 VALUE
-pgconn_error( obj)
-    VALUE obj;
+pgconn_error( VALUE obj)
 {
     char *error = PQerrorMessage( get_pgconn( obj));
     return error != NULL ? rb_tainted_str_new2( error) : Qnil;
 }
 
 void
-notice_receiver( self, result)
-    void *self;
-    const PGresult *result;
+notice_receiver( void *self, const PGresult *result)
 {
     VALUE block, err;
 
@@ -599,8 +574,7 @@ notice_receiver( self, result)
  *   conn.exec "select noise();"
  */
 VALUE
-pgconn_on_notice( self)
-    VALUE self;
+pgconn_on_notice( VALUE self)
 {
     PGconn *conn;
 
@@ -626,8 +600,7 @@ pgconn_on_notice( self)
  * Returns the sockets IO object.
  */
 VALUE
-pgconn_socket( obj)
-    VALUE obj;
+pgconn_socket( VALUE obj)
 {
     int fd;
 
@@ -648,8 +621,7 @@ pgconn_socket( obj)
  * In case a block is given +untrace+ will be called automatically.
  */
 VALUE
-pgconn_trace( self, port)
-    VALUE self, port;
+pgconn_trace( VALUE self, VALUE port)
 {
 #ifdef HAVE_FUNC_RB_IO_STDIO_FILE
     rb_io_t *fp;
@@ -674,8 +646,7 @@ pgconn_trace( self, port)
  * Disables the message tracing.
  */
 VALUE
-pgconn_untrace( self)
-    VALUE self;
+pgconn_untrace( VALUE self)
 {
     PQuntrace( get_pgconn( self));
     return Qnil;
@@ -704,8 +675,7 @@ pgconn_untrace( self)
  *   end
  */
 VALUE
-pgconn_format( self, obj)
-    VALUE self, obj;
+pgconn_format( VALUE self, VALUE obj)
 {
     return obj;
 }
@@ -731,8 +701,7 @@ pgconn_format( self, obj)
  * for more information.
  */
 VALUE
-pgconn_escape_bytea( self, str)
-    VALUE self, str;
+pgconn_escape_bytea( VALUE self, VALUE str)
 {
     unsigned char *s;
     size_t l;
@@ -767,8 +736,7 @@ pgconn_escape_bytea( self, str)
  * for more information.
  */
 VALUE
-pgconn_unescape_bytea( self, str)
-    VALUE self, str;
+pgconn_unescape_bytea( VALUE self, VALUE str)
 {
     VALUE ret;
 
@@ -779,8 +747,7 @@ pgconn_unescape_bytea( self, str)
 }
 
 int
-needs_dquote_string( str)
-    VALUE str;
+needs_dquote_string( VALUE str)
 {
     char *p;
     long l;
@@ -797,8 +764,7 @@ needs_dquote_string( str)
 }
 
 VALUE
-dquote_string( str)
-    VALUE str;
+dquote_string( VALUE str)
 {
     VALUE ret;
 
@@ -828,8 +794,7 @@ dquote_string( str)
 }
 
 VALUE
-stringize_array( self, result, ary)
-    VALUE self, result, ary;
+stringize_array( VALUE self, VALUE result, VALUE ary)
 {
     long i, j;
     VALUE *o;
@@ -879,8 +844,7 @@ stringize_array( self, result, ary)
  * string or as a +bytea+.  See the Pg::Conn#escape_bytea method.
  */
 VALUE
-pgconn_stringize( self, obj)
-    VALUE self, obj;
+pgconn_stringize( VALUE self, VALUE obj)
 {
     VALUE o, result;
 
@@ -970,8 +934,7 @@ gsub_escape_i( VALUE c, VALUE arg)
  * backslashes will be escaped, +nil+ will become "\\N".
  */
 VALUE
-pgconn_stringize_line( self, ary)
-    VALUE self, ary;
+pgconn_stringize_line( VALUE self, VALUE ary)
 {
     VALUE a;
     VALUE *p;
@@ -1026,8 +989,7 @@ pgconn_stringize_line( self, ary)
  * for more information.
  */
 VALUE
-pgconn_quote_bytea( self, str)
-    VALUE self, str;
+pgconn_quote_bytea( VALUE self, VALUE str)
 {
     char *t;
     size_t l;
@@ -1046,8 +1008,7 @@ pgconn_quote_bytea( self, str)
 
 
 VALUE
-quote_string( conn, str)
-    VALUE conn, str;
+quote_string( VALUE conn, VALUE str)
 {
     char *p;
     VALUE result;
@@ -1061,8 +1022,7 @@ quote_string( conn, str)
 }
 
 VALUE
-quote_array( self, result, ary)
-    VALUE self, result, ary;
+quote_array( VALUE self, VALUE result, VALUE ary)
 {
     long i, j;
     VALUE *o;
@@ -1105,8 +1065,7 @@ quote_array( self, result, ary)
  * Call Pg::Conn#quote_bytea if you want to tell your string is a byte array.
  */
 VALUE
-pgconn_quote( self, obj)
-    VALUE self, obj;
+pgconn_quote( VALUE self, VALUE obj)
 {
     VALUE o, result;
 
@@ -1175,8 +1134,7 @@ pgconn_quote( self, obj)
 }
 
 void
-quote_all( self, ary, res)
-    VALUE self, ary, res;
+quote_all( VALUE self, VALUE ary, VALUE res)
 {
     VALUE *p;
     long len;
@@ -1200,10 +1158,7 @@ quote_all( self, ary, res)
  * together with comma.
  */
 VALUE
-pgconn_quote_all( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_quote_all( int argc, VALUE *argv, VALUE self)
 {
     VALUE res;
     VALUE args;
@@ -1223,8 +1178,7 @@ pgconn_quote_all( argc, argv, self)
  * or upper case.
  */
 VALUE
-pgconn_quote_identifier( self, str)
-    VALUE self, str;
+pgconn_quote_identifier( VALUE self, VALUE str)
 {
     char *p;
     VALUE result;
@@ -1248,8 +1202,7 @@ pgconn_quote_identifier( self, str)
  * Returns the client encoding as a String.
  */
 VALUE
-pgconn_client_encoding( self)
-    VALUE self;
+pgconn_client_encoding( VALUE self)
 {
     char *encoding = (char *) pg_encoding_to_char(
                                 PQclientEncoding( get_pgconn( self)));
@@ -1263,8 +1216,7 @@ pgconn_client_encoding( self)
  * Sets the client encoding to the +encoding+ string.
  */
 VALUE
-pgconn_set_client_encoding( self, str)
-    VALUE self, str;
+pgconn_set_client_encoding( VALUE self, VALUE str)
 {
     StringValue( str);
     if ((PQsetClientEncoding( get_pgconn( self), RSTRING_PTR( str))) == -1)
@@ -1274,8 +1226,7 @@ pgconn_set_client_encoding( self, str)
 
 
 char **
-params_to_strings( conn, params)
-    VALUE conn, params;
+params_to_strings( VALUE conn, VALUE params)
 {
     VALUE *ptr;
     int len;
@@ -1302,9 +1253,7 @@ params_to_strings( conn, params)
 }
 
 void
-free_strings( strs, len)
-    char **strs;
-    int len;
+free_strings( char **strs, int len)
 {
     char **p;
     int l;
@@ -1316,11 +1265,7 @@ free_strings( strs, len)
 
 
 VALUE
-exec_sql_statement( argc, argv, self, store)
-    int argc;
-    VALUE *argv;
-    VALUE self;
-    int store;
+exec_sql_statement( int argc, VALUE *argv, VALUE self, int store)
 {
     PGconn *conn;
     PGresult *result;
@@ -1351,8 +1296,7 @@ exec_sql_statement( argc, argv, self, store)
 }
 
 VALUE
-yield_or_return_result( result)
-    VALUE result;
+yield_or_return_result( VALUE result)
 {
     return RTEST( rb_block_given_p()) ?
         rb_ensure( rb_yield, result, pgresult_clear, result) : result;
@@ -1369,18 +1313,14 @@ yield_or_return_result( result)
  * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
  */
 VALUE
-pgconn_exec( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_exec( int argc, VALUE *argv, VALUE self)
 {
     return yield_or_return_result( exec_sql_statement( argc, argv, self, 0));
 }
 
 
 VALUE
-clear_resultqueue( self)
-    VALUE self;
+clear_resultqueue( VALUE self)
 {
     PGconn *conn;
     PGresult *result;
@@ -1415,10 +1355,7 @@ clear_resultqueue( self)
  *   end
  */
 VALUE
-pgconn_send( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_send( int argc, VALUE *argv, VALUE self)
 {
     PGconn *conn;
     int res;
@@ -1456,8 +1393,7 @@ pgconn_send( argc, argv, self)
  * The result will be +nil+ if there are no more results.
  */
 VALUE
-pgconn_fetch( self)
-    VALUE self;
+pgconn_fetch( VALUE self)
 {
     PGconn *conn;
     PGresult *result;
@@ -1493,10 +1429,7 @@ pgconn_fetch( self)
  * otherwise.
  */
 VALUE
-pgconn_query( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_query( int argc, VALUE *argv, VALUE self)
 {
     VALUE result;
 
@@ -1522,10 +1455,7 @@ pgconn_query( argc, argv, self)
  * Equivalent to <code>conn.query( query, *bind_values).first</code>.
  */
 VALUE
-pgconn_select_one( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_select_one( int argc, VALUE *argv, VALUE self)
 {
     VALUE res;
     VALUE row;
@@ -1547,10 +1477,7 @@ pgconn_select_one( argc, argv, self)
  * Equivalent to conn.query( query, *bind_values).first.first
  */
 VALUE
-pgconn_select_value( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_select_value( int argc, VALUE *argv, VALUE self)
 {
     VALUE res;
     PGresult *result;
@@ -1570,10 +1497,7 @@ pgconn_select_value( argc, argv, self)
  * Equivalent to conn.query( query, *bind_values).flatten
  */
 VALUE
-pgconn_select_values( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_select_values( int argc, VALUE *argv, VALUE self)
 {
     VALUE res;
     PGresult *result;
@@ -1601,8 +1525,7 @@ pgconn_select_values( argc, argv, self)
  * Returns a notifier. If there is no unprocessed notifier, it returns +nil+.
  */
 VALUE
-pgconn_get_notify( self)
-    VALUE self;
+pgconn_get_notify( VALUE self)
 {
     PGconn *conn;
     PGnotify *notify;
@@ -1625,8 +1548,7 @@ pgconn_get_notify( self)
 
 
 VALUE
-rescue_transaction( self)
-    VALUE self;
+rescue_transaction( VALUE self)
 {
     pg_pqexec( get_pgconn( self), rb_str_new2( "rollback;"));
     rb_exc_raise( RB_ERRINFO);
@@ -1634,8 +1556,7 @@ rescue_transaction( self)
 }
 
 VALUE
-yield_transaction( self)
-    VALUE self;
+yield_transaction( VALUE self)
 {
     VALUE r;
 
@@ -1656,10 +1577,7 @@ yield_transaction( self)
  *
  */
 VALUE
-pgconn_transaction( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_transaction( int argc, VALUE *argv, VALUE self)
 {
     VALUE ser, ro;
     VALUE cmd;
@@ -1691,8 +1609,7 @@ pgconn_transaction( argc, argv, self)
 
 
 VALUE
-rescue_subtransaction( ary)
-    VALUE ary;
+rescue_subtransaction( VALUE ary)
 {
     VALUE cmd;
 
@@ -1706,8 +1623,7 @@ rescue_subtransaction( ary)
 }
 
 VALUE
-yield_subtransaction( ary)
-    VALUE ary;
+yield_subtransaction( VALUE ary)
 {
     VALUE r, cmd;
 
@@ -1729,10 +1645,7 @@ yield_subtransaction( ary)
  * contain % directives that will be expanded by +args+.
  */
 VALUE
-pgconn_subtransaction( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
 {
     VALUE sp, par, cmd, ya;
 
@@ -1761,8 +1674,7 @@ pgconn_subtransaction( argc, argv, self)
  *   PQTRANS_UNKNOWN = 4 (cannot determine status)
  */
 VALUE
-pgconn_transaction_status( self)
-    VALUE self;
+pgconn_transaction_status( VALUE self)
 {
     return INT2NUM( PQtransactionStatus( get_pgconn( self)));
 }
@@ -1773,8 +1685,7 @@ pgconn_transaction_status( self)
 
 
 VALUE
-put_end( self)
-    VALUE self;
+put_end( VALUE self)
 {
     PGconn *conn;
     int r;
@@ -1818,10 +1729,7 @@ put_end( self)
  * You may write a "\\." yourself if you like it.
  */
 VALUE
-pgconn_copy_stdin( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_copy_stdin( int argc, VALUE *argv, VALUE self)
 {
     VALUE result;
 
@@ -1845,8 +1753,7 @@ pgconn_copy_stdin( argc, argv, self)
  * and its value will be returned.
  */
 VALUE
-pgconn_putline( self, arg)
-    VALUE self, arg;
+pgconn_putline( VALUE self, VALUE arg)
 {
     VALUE str;
     char *p;
@@ -1885,8 +1792,7 @@ pgconn_putline( self, arg)
 
 
 VALUE
-get_end( self)
-    VALUE self;
+get_end( VALUE self)
 {
     PGconn *conn;
     char *b;
@@ -1928,10 +1834,7 @@ get_end( self)
  *   end
  */
 VALUE
-pgconn_copy_stdout( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_copy_stdout( int argc, VALUE *argv, VALUE self)
 {
     VALUE result;
 
@@ -1954,10 +1857,7 @@ pgconn_copy_stdout( argc, argv, self)
  * there for an example.
  */
 VALUE
-pgconn_getline( argc, argv, self)
-    int argc;
-    VALUE *argv;
-    VALUE self;
+pgconn_getline( int argc, VALUE *argv, VALUE self)
 {
     VALUE as;
     int async;
@@ -1993,8 +1893,7 @@ pgconn_getline( argc, argv, self)
  * there for an example.
  */
 VALUE
-pgconn_each_line( self)
-    VALUE self;
+pgconn_each_line( VALUE self)
 {
     PGconn *conn;
     char *b;
@@ -2013,18 +1912,14 @@ pgconn_each_line( self)
 
 
 void
-pgconn_cmd_set( self, command, params)
-    VALUE self;
-    VALUE command;
-    VALUE params;
+pgconn_cmd_set( VALUE self, VALUE command, VALUE params)
 {
     rb_ivar_set( self, id_command,    command);
     rb_ivar_set( self, id_parameters, params);
 }
 
 void
-pgconn_cmd_clear( self)
-    VALUE self;
+pgconn_cmd_clear( VALUE self)
 {
     rb_ivar_set( self, id_command,    Qnil);
     rb_ivar_set( self, id_parameters, Qnil);
@@ -2032,16 +1927,13 @@ pgconn_cmd_clear( self)
 
 
 void
-pg_raise_pgconn( conn)
-    PGconn *conn;
+pg_raise_pgconn( PGconn *conn)
 {
     rb_raise( rb_ePgConnError, PQerrorMessage( conn));
 }
 
 void
-pg_raise_pgres( self, result)
-    VALUE self;
-    PGresult *result;
+pg_raise_pgres( VALUE self, PGresult *result)
 {
     VALUE c, p;
 

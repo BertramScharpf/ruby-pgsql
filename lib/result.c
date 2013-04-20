@@ -73,8 +73,7 @@ pg_currency_class( void)
 
 
 int
-pg_checkresult( result)
-    PGresult *result;
+pg_checkresult( PGresult *result)
 {
     int s;
 
@@ -100,8 +99,7 @@ pg_checkresult( result)
 }
 
 PGresult *
-get_pgresult( obj)
-    VALUE obj;
+get_pgresult( VALUE obj)
 {
     PGresult *result;
 
@@ -112,9 +110,7 @@ get_pgresult( obj)
 }
 
 int
-get_tuple_number( result, index)
-    PGresult *result;
-    VALUE index;
+get_tuple_number( PGresult *result, VALUE index)
 {
     int i;
 
@@ -125,9 +121,7 @@ get_tuple_number( result, index)
 }
 
 int
-get_field_number( result, index)
-    PGresult *result;
-    VALUE index;
+get_field_number( PGresult *result, VALUE index)
 {
     int i;
 
@@ -140,10 +134,7 @@ get_field_number( result, index)
 
 
 VALUE
-pgreserror_new( result, cmd, args)
-    PGresult *result;
-    VALUE cmd;
-    VALUE args;
+pgreserror_new( PGresult *result, VALUE cmd, VALUE args)
 {
     VALUE rse, msg;
 
@@ -165,8 +156,7 @@ pgreserror_new( result, cmd, args)
  *
  */
 VALUE
-pgreserror_status( self)
-    VALUE self;
+pgreserror_status( VALUE self)
 {
     return INT2NUM( PQresultStatus( get_pgresult( self)));
 }
@@ -179,8 +169,7 @@ pgreserror_status( self)
  *
  */
 VALUE
-pgreserror_sqlst( self)
-    VALUE self;
+pgreserror_sqlst( VALUE self)
 {
     char *e;
 
@@ -196,8 +185,7 @@ pgreserror_sqlst( self)
  *
  */
 VALUE
-pgreserror_primary( self)
-    VALUE self;
+pgreserror_primary( VALUE self)
 {
     char *e;
 
@@ -214,8 +202,7 @@ pgreserror_primary( self)
  *
  */
 VALUE
-pgreserror_detail( self)
-    VALUE self;
+pgreserror_detail( VALUE self)
 {
     char *e;
 
@@ -232,8 +219,7 @@ pgreserror_detail( self)
  *
  */
 VALUE
-pgreserror_hint( self)
-    VALUE self;
+pgreserror_hint( VALUE self)
 {
     char *e;
 
@@ -243,17 +229,14 @@ pgreserror_hint( self)
 
 
 VALUE
-pgresult_alloc( cls)
-    VALUE cls;
+pgresult_alloc( VALUE cls)
 {
     return Data_Wrap_Struct( cls, 0, &PQclear, NULL);
 }
 
 
 VALUE
-pgresult_new( conn, result)
-    PGconn   *conn;
-    PGresult *result;
+pgresult_new( PGconn *conn, PGresult *result)
 {
     VALUE res;
 
@@ -275,16 +258,14 @@ pgresult_new( conn, result)
  *     * +COPY_IN+
  */
 VALUE
-pgresult_status( obj)
-    VALUE obj;
+pgresult_status( VALUE obj)
 {
     return INT2NUM( PQresultStatus( get_pgresult( obj)));
 }
 
 
 VALUE
-fetch_fields( result)
-    PGresult *result;
+fetch_fields( PGresult *result)
 {
     VALUE ary;
     int n, i;
@@ -302,8 +283,7 @@ fetch_fields( result)
 }
 
 VALUE
-field_index( fields, name)
-    VALUE fields, name;
+field_index( VALUE fields, VALUE name)
 {
     VALUE ret;
 
@@ -314,10 +294,7 @@ field_index( fields, name)
 }
 
 VALUE
-fetch_pgresult( result, row, column)
-    PGresult *result;
-    int row;
-    int column;
+fetch_pgresult( PGresult *result, int row, int column)
 {
     char *string;
     Oid typ;
@@ -380,10 +357,7 @@ fetch_pgresult( result, row, column)
 }
 
 VALUE
-fetch_pgrow( result, row_num, fields)
-    PGresult *result;
-    int row_num;
-    VALUE fields;
+fetch_pgrow( PGresult *result, int row_num, VALUE fields)
 {
     VALUE row;
     int i, l;
@@ -405,10 +379,7 @@ fetch_pgrow( result, row_num, fields)
  * Equivalent to <code>res.result[n]</code>.
  */
 VALUE
-pgresult_aref( argc, argv, obj)
-    int argc;
-    VALUE *argv;
-    VALUE obj;
+pgresult_aref( int argc, VALUE *argv, VALUE obj)
 {
     PGresult *result;
     int nf, nt;
@@ -465,8 +436,7 @@ string_unescape_bytea( char *escaped)
  * wasn't any (like <code>Numeric#nonzero?</code>).
  */
 VALUE
-pgresult_each( self)
-    VALUE self;
+pgresult_each( VALUE self)
 {
     PGresult *result;
     int n, r;
@@ -491,8 +461,7 @@ pgresult_each( self)
  *   res.fields => [ 'foo', 'biggles', 'jim', 'jam']
  */
 VALUE
-pgresult_fields( obj)
-    VALUE obj;
+pgresult_fields( VALUE obj)
 {
     return fetch_fields( get_pgresult( obj));
 }
@@ -506,8 +475,7 @@ pgresult_fields( obj)
  * Similar to <code>res.result.length</code> (but faster).
  */
 VALUE
-pgresult_num_tuples( obj)
-    VALUE obj;
+pgresult_num_tuples( VALUE obj)
 {
     return INT2NUM( PQntuples( get_pgresult( obj)));
 }
@@ -521,8 +489,7 @@ pgresult_num_tuples( obj)
  * Similar to <code>res.result[0].length</code> (but faster).
  */
 VALUE
-pgresult_num_fields( obj)
-    VALUE obj;
+pgresult_num_fields( VALUE obj)
 {
     return INT2NUM( PQnfields( get_pgresult( obj)));
 }
@@ -540,8 +507,7 @@ pgresult_num_fields( obj)
  * Equivalent to <code>res.fields[_index_]</code>.
  */
 VALUE
-pgresult_fieldname( obj, index)
-    VALUE obj, index;
+pgresult_fieldname( VALUE obj, VALUE index)
 {
     PGresult *result;
 
@@ -563,8 +529,7 @@ pgresult_fieldname( obj, index)
  * names; raises a TypeError if _name_ is not a String.
  */
 VALUE
-pgresult_fieldnum( obj, name)
-    VALUE obj, name;
+pgresult_fieldnum( VALUE obj, VALUE name)
 {
     int n;
 
@@ -586,8 +551,7 @@ pgresult_fieldnum( obj, name)
  * every column type in the file <code>src/include/catalog/pg_type.h</code>.
  */
 VALUE
-pgresult_type( obj, index)
-    VALUE obj, index;
+pgresult_type( VALUE obj, VALUE index)
 {
     PGresult* result = get_pgresult( obj);
     return INT2NUM(
@@ -606,8 +570,7 @@ pgresult_type( obj, index)
  *   res.size 1     #=> -1
  */
 VALUE
-pgresult_size( obj, index)
-    VALUE obj, index;
+pgresult_size( VALUE obj, VALUE index)
 {
     PGresult *result;
 
@@ -626,8 +589,7 @@ pgresult_size( obj, index)
  * faster).
  */
 VALUE
-pgresult_getvalue( obj, tup_num, field_num)
-    VALUE obj, tup_num, field_num;
+pgresult_getvalue( VALUE obj, VALUE tup_num, VALUE field_num)
 {
     PGresult *result;
 
@@ -653,8 +615,7 @@ pgresult_getvalue( obj, tup_num, field_num)
  * it is slower than using the field index directly.)</i>
  */
 VALUE
-pgresult_getvalue_byname( obj, tup_num, field_name)
-    VALUE obj, tup_num, field_name;
+pgresult_getvalue_byname( VALUE obj, VALUE tup_num, VALUE field_name)
 {
     return pgresult_getvalue( obj, tup_num,
                 pgresult_fieldnum( obj, field_name));
@@ -669,8 +630,7 @@ pgresult_getvalue_byname( obj, tup_num, field_name)
  * Equivalent to <code>res.value(<i>tup_num</i>,<i>field_num</i>).length</code>.
  */
 VALUE
-pgresult_getlength( obj, tup_num, field_num)
-    VALUE obj, tup_num, field_num;
+pgresult_getlength( VALUE obj, VALUE tup_num, VALUE field_num)
 {
     PGresult *result;
 
@@ -689,8 +649,7 @@ pgresult_getlength( obj, tup_num, field_num)
  * Equivalent to <code>res.value(<i>tup_num</i>,<i>field_num</i>)==+nil+</code>.
  */
 VALUE
-pgresult_getisnull( obj, tup_num, field_num)
-    VALUE obj, tup_num, field_num;
+pgresult_getisnull( VALUE obj, VALUE tup_num, VALUE field_num)
 {
     PGresult *result;
 
@@ -711,8 +670,7 @@ pgresult_getisnull( obj, tup_num, field_num)
  * affected, <code>0</code> is returned.
  */
 VALUE
-pgresult_cmdtuples( obj)
-    VALUE obj;
+pgresult_cmdtuples( VALUE obj)
 {
     char *n;
 
@@ -727,8 +685,7 @@ pgresult_cmdtuples( obj)
  * Returns the status string of the last query command.
  */
 VALUE
-pgresult_cmdstatus( obj)
-    VALUE obj;
+pgresult_cmdstatus( VALUE obj)
 {
     return rb_tainted_str_new2( PQcmdStatus( get_pgresult( obj)));
 }
@@ -740,8 +697,7 @@ pgresult_cmdstatus( obj)
  * Returns the +oid+.
  */
 VALUE
-pgresult_oid( obj)
-    VALUE obj;
+pgresult_oid( VALUE obj)
 {
     Oid n;
 
@@ -756,8 +712,7 @@ pgresult_oid( obj)
  * Clears the Pg::Result object as the result of the query.
  */
 VALUE
-pgresult_clear( obj)
-    VALUE obj;
+pgresult_clear( VALUE obj)
 {
     if (DATA_PTR( obj) != NULL) {
       PQclear( get_pgresult( obj));

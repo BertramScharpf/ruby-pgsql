@@ -31,8 +31,7 @@ VALUE rb_cPgRow;
  * except internally for Pg::Result when returning rows.
  */
 VALUE
-pgrow_init( self, keys)
-    VALUE self, keys;
+pgrow_init( VALUE self, VALUE keys)
 {
     VALUE len;
 
@@ -50,10 +49,7 @@ pgrow_init( self, keys)
  * Access elements of this row by column position or name.
  */
 VALUE
-pgrow_aref( argc, argv, self)
-    int    argc;
-    VALUE *argv;
-    VALUE  self;
+pgrow_aref( int argc, VALUE *argv, VALUE self)
 {
     if (argc == 1 && TYPE( argv[0]) == T_STRING)
         return rb_ary_entry( self, NUM2INT(
@@ -68,8 +64,7 @@ pgrow_aref( argc, argv, self)
  * Column names.
  */
 VALUE
-pgrow_keys( self)
-    VALUE self;
+pgrow_keys( VALUE self)
 {
     return rb_ivar_get( self, id_keys);
 }
@@ -79,8 +74,7 @@ pgrow_keys( self)
  *   row.values -> row
  */
 VALUE
-pgrow_values( self)
-    VALUE self;
+pgrow_values( VALUE self)
 {
     return self;
 }
@@ -93,8 +87,7 @@ pgrow_values( self)
  * Iterate with values or (column, value) pairs.
  */
 VALUE
-pgrow_each( self)
-    VALUE self;
+pgrow_each( VALUE self)
 {
     int arity;
 
@@ -109,8 +102,7 @@ pgrow_each( self)
  * Iterate with column, value pairs.
  */
 VALUE
-pgrow_each_pair( self)
-    VALUE self;
+pgrow_each_pair( VALUE self)
 {
     VALUE keys;
     int i;
@@ -129,8 +121,7 @@ pgrow_each_pair( self)
  * Iterate with column names.
  */
 VALUE
-pgrow_each_key( self)
-    VALUE self;
+pgrow_each_key( VALUE self)
 {
     rb_ary_each( pgrow_keys( self));
     return self;
@@ -143,8 +134,7 @@ pgrow_each_key( self)
  * Iterate with values.
  */
 VALUE
-pgrow_each_value( self)
-    VALUE self;
+pgrow_each_value( VALUE self)
 {
     rb_ary_each( self);
     return self;
@@ -158,8 +148,7 @@ pgrow_each_value( self)
  * Equivalent to <tt>Hash [*row.keys.zip( row).flatten]</tt>
  */
 VALUE
-pgrow_to_hash( self)
-    VALUE self;
+pgrow_to_hash( VALUE self)
 {
     VALUE keys;
     int i;

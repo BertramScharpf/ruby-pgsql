@@ -8,8 +8,7 @@ VALUE rb_mPg;
 VALUE rb_ePgError;
 
 PGconn *
-get_pgconn( obj)
-    VALUE obj;
+get_pgconn( VALUE obj)
 {
     PGconn *conn;
 
