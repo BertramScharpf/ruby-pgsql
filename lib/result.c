@@ -29,9 +29,13 @@ static ID id_parse;
 static ID id_index;
 static ID id_currency;
 
+
 static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
 
+static VALUE pgreserror_alloc( VALUE cls);
+
+static void  free_pgresult( struct pgresult_data *ptr);
 static VALUE pgresult_alloc( VALUE cls);
 static VALUE pgresult_status( VALUE obj);
 static VALUE pgresult_aref( int argc, VALUE *argv, VALUE obj);
@@ -72,32 +76,6 @@ pg_currency_class( void)
 }
 
 
-int
-pg_checkresult( PGresult *result)
-{
-    int s;
-
-    s = PQresultStatus( result);
-    switch (s) {
-        case PGRES_EMPTY_QUERY:
-        case PGRES_COMMAND_OK:
-        case PGRES_TUPLES_OK:
-        case PGRES_COPY_OUT:
-        case PGRES_COPY_IN:
-            break;
-        case PGRES_BAD_RESPONSE:
-        case PGRES_NONFATAL_ERROR:
-        case PGRES_FATAL_ERROR:
-            return -1;
-            break;
-        default:
-            PQclear( result);
-            rb_raise( rb_ePgError, "internal error: unknown result status.");
-            break;
-    }
-    return s;
-}
-
 PGresult *
 get_pgresult( VALUE obj)
 {
@@ -134,12 +112,21 @@ get_field_number( PGresult *result, VALUE index)
 
 
 VALUE
+pgreserror_alloc( VALUE cls)
+{
+    struct pgresult_data *r;
+
+    return Data_Wrap_Struct( cls, 0, &free_pgresult, r);
+}
+
+
+VALUE
 pgreserror_new( PGresult *result, VALUE cmd, VALUE args)
 {
     VALUE rse, msg;
 
     rse = pgresult_alloc( rb_ePgResError);
-    DATA_PTR( rse) = result;
+    DATA_PTR( rse)->res = result;
     msg = rb_str_new2( PQresultErrorMessage( result));
     rb_obj_call_init( rse, 1, &msg);
     rb_ivar_set( rse, rb_intern( "@command"),    cmd);
@@ -228,22 +215,36 @@ pgreserror_hint( VALUE self)
 }
 
 
+void
+free_pgresult( struct pgresult_data *ptr)
+{
+    PQclear( ptr->res);
+    free( ptr);
+}
+
 VALUE
 pgresult_alloc( VALUE cls)
 {
-    return Data_Wrap_Struct( cls, 0, &PQclear, NULL);
+    struct pgresult_data *r;
+
+    return Data_Make_Struct( cls, struct pgresult_data, 0, &free_pgresult, r);
+    r->res  = NULL;
+    r->conn = NULL;
 }
 
 
 VALUE
-pgresult_new( PGconn *conn, PGresult *result)
+pgresult_new( struct pgconn_data *conn, PGresult *result)
 {
-    VALUE res;
+    VALUE r;
 
-    res = pgresult_alloc( rb_cPgResult);
-    DATA_PTR( res) = result;
-    rb_obj_call_init( res, 0, NULL);
-    return res;
+    r = pgresult_alloc( rb_cPgResult);
+    DATA_PTR( r)->res  = result;
+    DATA_PTR( r)->conn = conn;
+#if 0
+    rb_obj_call_init( r, 0, NULL);
+#endif
+    return r;
 }
 
 /*
@@ -745,10 +746,6 @@ pgresult_clear( VALUE obj)
 void
 Init_pgsql_result( void)
 {
-#if 0
-    rb_mPg = rb_define_module( "Pg");
-#endif
-
     rb_require( "bigdecimal");
     rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
 
@@ -759,8 +756,11 @@ Init_pgsql_result( void)
     rb_cCurrency   = Qnil;
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
+#if 0
     rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
+#else
     rb_undef_method( CLASS_OF( rb_cPgResult), "new");
+#endif
     rb_include_module( rb_cPgResult, rb_mEnumerable);
 
 #define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
@@ -800,7 +800,7 @@ Init_pgsql_result( void)
 
     rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error",
                                                                 rb_ePgError);
-    rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
+    rb_define_alloc_func( rb_ePgResError, pgreserror_alloc);
 
     rb_define_attr( rb_ePgResError, "command",    1, 0);
     rb_define_attr( rb_ePgResError, "parameters", 1, 0);

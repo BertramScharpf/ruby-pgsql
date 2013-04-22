@@ -7,6 +7,11 @@
 
 #include "module.h"
 
+struct pgresult_data {
+    PGresult           *res;
+    struct pgconn_data *conn;
+};
+
 extern VALUE rb_cBigDecimal;
 extern VALUE rb_cDate;
 extern VALUE rb_cDateTime;
@@ -15,12 +20,11 @@ extern VALUE rb_cCurrency;
 extern VALUE pgreserror_new( PGresult *ptr, VALUE cmd, VALUE args);
 
 extern VALUE     pg_currency_class( void);
-extern int       pg_checkresult( PGresult *result);
 extern PGresult *get_pgresult( VALUE obj);
 extern VALUE     string_unescape_bytea( char *escaped);
 
 
-extern VALUE pgresult_new( PGconn *conn, PGresult *ptr);
+extern VALUE pgresult_new( struct pgconn_data *conn, PGresult *ptr);
 extern VALUE pgresult_clear( VALUE obj);
 
 

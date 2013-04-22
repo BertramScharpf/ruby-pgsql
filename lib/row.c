@@ -174,10 +174,6 @@ pgrow_to_hash( VALUE self)
 void
 Init_pgsql_row( void)
 {
-#if 0
-    rb_mPg = rb_define_module( "Pg");
-#endif
-
     rb_cPgRow = rb_define_class_under( rb_mPg, "Row", rb_cArray);
     rb_define_method( rb_cPgRow, "initialize", pgrow_init, 1);
     rb_define_method( rb_cPgRow, "[]", pgrow_aref, -1);
