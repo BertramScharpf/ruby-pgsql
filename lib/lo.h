@@ -5,8 +5,6 @@
 #ifndef __LO_H
 #define __LO_H
 
-#include "base.h"
-
 struct pglarge_data
 {
     PGconn *conn;

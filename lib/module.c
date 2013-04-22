@@ -5,14 +5,17 @@
 #include "module.h"
 
 #include "conn.h"
+#ifdef TODO_DONE
 #include "result.h"
 #include "row.h"
+#endif
 
 
 #define PGSQL_VERSION "1.0"
 
 
-ID id_new;
+VALUE rb_mPg;
+VALUE rb_ePgError;
 
 
 /********************************************************************
@@ -41,10 +44,10 @@ Init_pgsql( void)
 
     rb_ePgError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
 
-    id_new = rb_intern( "new");
-
     Init_pgsql_conn();
+#ifdef TODO_DONE
     Init_pgsql_result();
     Init_pgsql_row();
+#endif
 }
 

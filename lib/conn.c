@@ -5,7 +5,10 @@
 
 #include "conn.h"
 
+#ifdef TODO_DONE
 #include "result.h"
+#endif
+
 
 #if defined( HAVE_HEADER_ST_H)
     #include <st.h>
@@ -28,161 +31,94 @@
     #include <libpq/libpq-fs.h>
 #endif
 
-static ID id_to_postgres;
-static ID id_raw;
-static ID id_format;
-static ID id_iso8601;
-static ID id_call;
-static ID id_on_notice;
-static ID id_gsub_bang;
-static id_command;
-static id_parameters;
 
-static VALUE pg_escape_regex;
-
-static int       pg_checkresult( PGresult *result);
-static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
-
+static void  pgconn_mark( struct pgconn_data *ptr);
+static void  pgconn_free( struct pgconn_data *ptr);
+static struct pgconn_data *get_pgconn( VALUE obj);
+static VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
+static VALUE pgconn_alloc( VALUE cls);
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
 static VALUE pgconn_s_parse( VALUE cls, VALUE str);
-static VALUE pgconn_s_translate_results_set( VALUE cls, VALUE fact);
-
+static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
 static void  connstr_passwd( VALUE self, VALUE params);
-
-static void  free_pgconn( struct pgconn_data *ptr);
-static VALUE pgconn_alloc( VALUE cls);
-static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_close( VALUE obj);
 static VALUE pgconn_reset( VALUE obj);
+
 static VALUE pgconn_protocol_version( VALUE obj);
-static VALUE pgconn_server_version( VALUE obj);
-static VALUE pgconn_db( VALUE obj);
-static VALUE pgconn_host( VALUE obj);
+static VALUE pgconn_server_version(   VALUE obj);
+
+static VALUE pgconn_db(      VALUE obj);
+static VALUE pgconn_host(    VALUE obj);
 static VALUE pgconn_options( VALUE obj);
-static VALUE pgconn_port( VALUE obj);
-static VALUE pgconn_tty( VALUE obj);
-static VALUE pgconn_user( VALUE obj);
-static VALUE pgconn_status( VALUE obj);
-static VALUE pgconn_error( VALUE obj);
-static void  notice_receiver( void *self, const PGresult *result);
-static VALUE pgconn_on_notice( VALUE self);
+static VALUE pgconn_port(    VALUE obj);
+static VALUE pgconn_tty(     VALUE obj);
+static VALUE pgconn_user(    VALUE obj);
+static VALUE pgconn_status(  VALUE obj);
+static VALUE pgconn_error(   VALUE obj);
 
-static VALUE pgconn_socket( VALUE obj);
+static VALUE pgconn_socket(  VALUE obj);
 
-static VALUE pgconn_trace( VALUE obj, VALUE port);
+static VALUE pgconn_trace(   VALUE obj, VALUE port);
 static VALUE pgconn_untrace( VALUE obj);
 
-static VALUE pgconn_format( VALUE self, VALUE obj);
-static VALUE pgconn_escape_bytea( VALUE self, VALUE obj);
-static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
-static int   needs_dquote_string( VALUE str);
-static VALUE dquote_string( VALUE str);
-static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
-static VALUE pgconn_stringize( VALUE self, VALUE obj);
-static VALUE gsub_escape_i( VALUE c, VALUE arg);
-static VALUE pgconn_stringize_line( VALUE self, VALUE ary);
 
-static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
-static VALUE quote_string( VALUE conn, VALUE str);
-static VALUE quote_array( VALUE self, VALUE result, VALUE ary);
-static VALUE pgconn_quote( VALUE self, VALUE value);
-static void  quote_all( VALUE self, VALUE ary, VALUE res);
-static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
+VALUE rb_cPgConn;
 
-static VALUE pgconn_client_encoding( VALUE obj);
-static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
+static VALUE rb_ePgConnFailed;
+static VALUE rb_ePgConnInvalid;
 
 
-static char **params_to_strings( VALUE conn, VALUE params);
-static void free_strings( char **strs, int len);
-static PGresult *exec_sql_statement( int argc, VALUE *argv, VALUE self, int store);
-static VALUE yield_or_return_result( VALUE res);
-static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
-static VALUE clear_resultqueue( VALUE obj);
-static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_fetch( VALUE obj);
-
-static VALUE pgconn_query(         int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_get_notify( VALUE self);
-
-static VALUE rescue_transaction( VALUE self);
-static VALUE yield_transaction( VALUE self);
-static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
-static VALUE rescue_subtransaction( VALUE ary);
-static VALUE yield_subtransaction( VALUE ary);
-static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_transaction_status( VALUE self);
-
-static VALUE put_end( VALUE conn);
-static VALUE pgconn_copy_stdin( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_putline( VALUE self, VALUE str);
-static VALUE get_end( VALUE conn);
-static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_each_line( VALUE self);
-
-static void pgconn_cmd_set( VALUE self, VALUE command, VALUE params);
-static void pgconn_cmd_clear( VALUE self);
-
-static void  pg_raise_pgres( VALUE self, PGresult *result);
-
-
-static const char *str_NULL = "NULL";
-
-static VALUE rb_cPgConn;
-static VALUE rb_ePgConnectFailed;
-static VALUE rb_ePgConnError;
-static VALUE rb_ePgTransError;
-
-
-int translate_results = 1;
-
-
-int
-pg_checkresult( PGresult *result)
+void
+pgconn_mark( struct pgconn_data *ptr)
 {
-    int s;
-
-    s = PQresultStatus( result);
-    switch (s) {
-        case PGRES_EMPTY_QUERY:
-        case PGRES_COMMAND_OK:
-        case PGRES_TUPLES_OK:
-        case PGRES_COPY_OUT:
-        case PGRES_COPY_IN:
-            break;
-        case PGRES_BAD_RESPONSE:
-        case PGRES_NONFATAL_ERROR:
-        case PGRES_FATAL_ERROR:
-            return -1;
-            break;
-        default:
-            PQclear( result);
-            rb_raise( rb_ePgError, "internal error: unknown result status.");
-            break;
-    }
-    return s;
+    rb_gc_mark( ptr->notice);
 }
 
-PGresult *
-pg_pqexec( PGconn *conn, VALUE cmd)
+void
+pgconn_free( struct pgconn_data *ptr)
 {
-    PGresult *result;
-
-    result = PQexec( conn, RSTRING_PTR( cmd));
-    if (result == NULL)
-        pg_raise_pgconn( conn);
-    if (pg_checkresult( result) < 0)
-        rb_exc_raise( pgreserror_new( result, cmd, Qnil));
-    return result;
+    if (ptr->conn != NULL)
+        PQfinish( ptr->conn);
+    free( ptr);
 }
 
+struct pgconn_data *
+get_pgconn( VALUE obj)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( obj, struct pgconn_data, c);
+    if (c->conn == NULL)
+        rb_raise( rb_ePgConnInvalid, "Invalid connection (probably closed).");
+    return c;
+}
+
+VALUE
+pgconn_mkstring( struct pgconn_data *ptr, const char *str)
+{
+    VALUE r;
+
+    r = rb_tainted_str_new2( str);
+#ifdef TODO_RUBY19_ENCODING
+    rb_encode_it( str, ptr->external);
+#endif
+    return r;
+}
+
+VALUE
+pgconn_alloc( VALUE cls)
+{
+    struct pgconn_data *c;
+    VALUE r;
+
+    r = Data_Make_Struct( cls, struct pgconn_data,
+                            &pgconn_mark, &pgconn_free, c);
+    c->conn = NULL;
+    c->notice = Qnil;
+    return r;
+}
 
 /*
  * Document-method: connect
@@ -206,7 +142,6 @@ pgconn_s_connect( int argc, VALUE *argv, VALUE cls)
         rb_ensure( rb_yield, pgconn, pgconn_close, pgconn) : pgconn;
 }
 
-
 /*
  * call-seq:
  *   Pg::Conn.parse( str)    -> hash
@@ -221,26 +156,78 @@ pgconn_s_parse( VALUE cls, VALUE str)
     VALUE params;
 
     params = rb_hash_new();
-    connstr_to_hash( params, rb_obj_as_string( str));
+    connstr_to_hash( params, str);
     return params;
 }
 
 
 /*
+ * Document-method: new
+ *
  * call-seq:
- *   Pg::Conn.translate_results = boolean
+ *     Pg::Conn.new( hash)        ->   conn
+ *     Pg::Conn.new( str, hash)   ->   conn
  *
- * When true (default), results are translated to appropriate ruby class.
- * When false, results are returned as +Strings+.
+ * Establish a connection to a PostgreSQL server.
+ * The parameters may be specified as a hash:
  *
+ *   c = Pg::Conn.new :dbname => "movies", :host => "jupiter", ...
+ *
+ * The most common parameters may be given in a URL-like
+ * connection string:
+ *
+ *   "user:password@host:port/dbname"
+ *
+ * Any of these parts may be omitted.  If there is no slash, the part after the
+ * @ sign will be read as database name.
+ *
+ * If the password is the empty string, and there is either an instance method
+ * or a class method <code>password?</code>, that method will be asked.
+ *
+ * See the PostgreSQL documentation for a full list:
+ * [http://www.postgresql.org/docs/current/interactive/libpq-connect.html#LIBPQ-PQCONNECTDBPARAMS]
+ *
+ * On failure, a +Pg::Error+ exception will be raised.
  */
 VALUE
-pgconn_s_translate_results_set( VALUE cls, VALUE fact)
+pgconn_init( int argc, VALUE *argv, VALUE self)
 {
-    translate_results = RTEST( fact) ? 1 : 0;
-    return Qnil;
-}
+    VALUE str, params;
+    int l;
+    const char **keywords, **values;
+    const char **ptrs[ 2];
+    struct pgconn_data *c;
 
+    if (rb_scan_args( argc, argv, "02", &str, &params) < 2)
+        if (TYPE( str) != T_STRING) {
+            params = str;
+            str = Qnil;
+        }
+    if      (NIL_P( params))
+        params = rb_hash_new();
+    else if (TYPE( params) != T_HASH)
+        params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
+    else
+        params = rb_obj_dup( params);
+    if (!NIL_P( str))
+        connstr_to_hash( params, str);
+    connstr_passwd( self, params);
+
+    l = RHASH_SIZE( params) + 1;
+    keywords = (const char **) ALLOCA_N( char *, l);
+    values   = (const char **) ALLOCA_N( char *, l);
+    ptrs[ 0] = keywords;
+    ptrs[ 1] = values;
+    st_foreach( RHASH_TBL( params), set_connect_params, (st_data_t) ptrs);
+    *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    c->conn = PQconnectdbParams( keywords, values, 0);
+    if (PQstatus( c->conn) == CONNECTION_BAD)
+        rb_raise( rb_ePgConnFailed, PQerrorMessage( c->conn));
+
+    return self;
+}
 
 int
 set_connect_params( st_data_t key, st_data_t val, st_data_t args)
@@ -332,103 +319,6 @@ connstr_passwd( VALUE self, VALUE params)
     }
 }
 
-
-void
-free_pgconn( struct pgconn_data *ptr)
-{
-    PQfinish( ptr->conn);
-    free( ptr);
-}
-
-
-VALUE
-pgconn_alloc( VALUE cls)
-{
-    struct pgconn_data *c;
-
-    return Data_Make_Struct( cls, struct pgconn_data, 0, &free_pgconn, c);
-    c->conn = NULL;
-}
-
-PGconn *
-get_pgconn( VALUE obj)
-{
-    struct pgconn_data *c;
-
-    Data_Get_Struct( obj, struct pgconn_data, c);
-    if (c->conn == NULL)
-        rb_raise( rb_ePgError, "not a valid connection");
-    return c->conn;
-}
-
-/*
- * Document-method: new
- *
- * call-seq:
- *     Pg::Conn.new( hash)        ->   conn
- *     Pg::Conn.new( str, hash)   ->   conn
- *
- * Establish a connection to a PostgreSQL server.
- * The parameters may be specified as a hash:
- *
- *   c = Pg::Conn.new :dbname => "movies", :host => "jupiter", ...
- *
- * The most common parameters may be given in a URL-like
- * connection string:
- *
- *   "user:password@host:port/dbname"
- *
- * Any of these parts may be omitted.  If there is no slash, the part after the
- * @ sign will be read as database name.
- *
- * If the password is the empty string, and there is either an instance method
- * or a class method <code>password?</code>, that method will be asked.
- *
- * See the PostgreSQL documentation for a full list:
- * [http://www.postgresql.org/docs/current/interactive/libpq-connect.html#LIBPQ-PQCONNECTDBPARAMS]
- *
- * On failure, a +Pg::Error+ exception will be raised.
- */
-VALUE
-pgconn_init( int argc, VALUE *argv, VALUE self)
-{
-    VALUE str, params;
-    int l;
-    const char **keywords, **values;
-    const char **ptrs[ 2];
-    struct pgconn_data *c;
-
-    if (rb_scan_args( argc, argv, "02", &str, &params) < 2)
-        if (TYPE( str) != T_STRING) {
-            params = str;
-            str = Qnil;
-        }
-    if      (NIL_P( params))
-        params = rb_hash_new();
-    else if (TYPE( params) != T_HASH)
-        params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
-    else
-        params = rb_obj_dup( params);
-    if (!NIL_P( str))
-        connstr_to_hash( params, rb_obj_as_string( str));
-    connstr_passwd( self, params);
-
-    l = RHASH_SIZE( params) + 1;
-    keywords = (const char **) ALLOCA_N( char *, l);
-    values   = (const char **) ALLOCA_N( char *, l);
-    ptrs[ 0] = keywords;
-    ptrs[ 1] = values;
-    st_foreach( RHASH_TBL( params), set_connect_params, (st_data_t) ptrs);
-    *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
-
-    Data_Get_Struct( self, struct pgconn_data, c);
-    c->conn = PQconnectdbParams( keywords, values, 0);
-    if (PQstatus( c->conn) == CONNECTION_BAD)
-        rb_raise( rb_ePgConnectFailed, PQerrorMessage( c->conn));
-
-    return self;
-}
-
 /*
  * call-seq:
  *    conn.close()
@@ -456,9 +346,10 @@ pgconn_close( VALUE obj)
 VALUE
 pgconn_reset( VALUE obj)
 {
-    PQreset( get_pgconn( obj));
+    PQreset( get_pgconn( obj)->conn);
     return obj;
 }
+
 
 /*
  * call-seq:
@@ -471,7 +362,7 @@ pgconn_reset( VALUE obj)
 VALUE
 pgconn_protocol_version( VALUE obj)
 {
-    return INT2NUM( PQprotocolVersion( get_pgconn( obj)));
+    return INT2NUM( PQprotocolVersion( get_pgconn( obj)->conn));
 }
 
 /*
@@ -487,8 +378,9 @@ pgconn_protocol_version( VALUE obj)
 VALUE
 pgconn_server_version( VALUE obj)
 {
-    return INT2NUM( PQserverVersion( get_pgconn( obj)));
+    return INT2NUM( PQserverVersion( get_pgconn( obj)->conn));
 }
+
 
 /*
  * call-seq:
@@ -499,8 +391,12 @@ pgconn_server_version( VALUE obj)
 VALUE
 pgconn_db( VALUE obj)
 {
-    char *db = PQdb( get_pgconn( obj));
-    return db == NULL ? Qnil : rb_tainted_str_new2( db);
+    struct pgconn_data *c;
+    char *db;
+
+    c = get_pgconn( obj);
+    db = PQdb( c->conn);
+    return db == NULL ? Qnil : pgconn_mkstring( c, db);
 }
 
 /*
@@ -512,8 +408,12 @@ pgconn_db( VALUE obj)
 VALUE
 pgconn_host( VALUE obj)
 {
-    char *host = PQhost( get_pgconn( obj));
-    return host == NULL ? Qnil : rb_tainted_str_new2( host);
+    struct pgconn_data *c;
+    char *host;
+
+    c = get_pgconn( obj);
+    host = PQhost( c->conn);
+    return host == NULL ? Qnil : pgconn_mkstring( c, host);
 }
 
 /*
@@ -525,8 +425,12 @@ pgconn_host( VALUE obj)
 VALUE
 pgconn_options( VALUE obj)
 {
-    char *options = PQoptions( get_pgconn( obj));
-    return options == NULL ? Qnil : rb_tainted_str_new2( options);
+    struct pgconn_data *c;
+    char *options;
+
+    c = get_pgconn( obj);
+    options = PQoptions( c->conn);
+    return options == NULL ? Qnil : pgconn_mkstring( c, options);
 }
 
 /*
@@ -538,7 +442,7 @@ pgconn_options( VALUE obj)
 VALUE
 pgconn_port( VALUE obj)
 {
-    char* port = PQport( get_pgconn( obj));
+    char* port = PQport( get_pgconn( obj)->conn);
     return port == NULL ? Qnil : INT2NUM( atol( port));
 }
 
@@ -551,8 +455,12 @@ pgconn_port( VALUE obj)
 VALUE
 pgconn_tty( VALUE obj)
 {
-    char *tty = PQtty( get_pgconn( obj));
-    return tty == NULL ? Qnil : rb_tainted_str_new2( tty);
+    struct pgconn_data *c;
+    char *tty;
+
+    c = get_pgconn( obj);
+    tty = PQtty( c->conn);
+    return tty == NULL ? Qnil : pgconn_mkstring( c, tty);
 }
 
 /*
@@ -564,8 +472,12 @@ pgconn_tty( VALUE obj)
 VALUE
 pgconn_user( VALUE obj)
 {
-    char *user = PQuser( get_pgconn( obj));
-    return user == NULL ? Qnil : rb_tainted_str_new2( user);
+    struct pgconn_data *c;
+    char *user;
+
+    c = get_pgconn( obj);
+    user = PQuser( c->conn);
+    return user == NULL ? Qnil : pgconn_mkstring( c, user);
 }
 
 /*
@@ -577,7 +489,7 @@ pgconn_user( VALUE obj)
 VALUE
 pgconn_status( VALUE obj)
 {
-    return INT2NUM( PQstatus( get_pgconn( obj)));
+    return INT2NUM( PQstatus( get_pgconn( obj)->conn));
 }
 
 /*
@@ -589,8 +501,390 @@ pgconn_status( VALUE obj)
 VALUE
 pgconn_error( VALUE obj)
 {
-    char *error = PQerrorMessage( get_pgconn( obj));
-    return error != NULL ? rb_tainted_str_new2( error) : Qnil;
+    struct pgconn_data *c;
+    char *error;
+
+    c = get_pgconn( obj);
+    error = PQerrorMessage( c->conn);
+    return error == NULL ? Qnil : pgconn_mkstring( c, error);
+}
+
+
+
+/*
+ * call-seq:
+ *    conn.socket()  -> io
+ *
+ * Returns the sockets IO object.
+ */
+VALUE
+pgconn_socket( VALUE obj)
+{
+    static ID id_new = 0;
+    int fd;
+
+    if (id_new == 0)
+        id_new = rb_intern( "new");
+
+    fd = PQsocket( get_pgconn( obj)->conn);
+    return rb_funcall( rb_cIO, id_new, 1, INT2NUM( fd));
+}
+
+
+/*
+ * call-seq:
+ *    conn.trace( port)
+ *    conn.trace( port) { ... }
+ *
+ * Enables tracing message passing between backend.
+ * The trace message will be written to the _port_ object,
+ * which is an instance of the class +File+ (or at least +IO+).
+ *
+ * In case a block is given +untrace+ will be called automatically.
+ */
+VALUE
+pgconn_trace( VALUE self, VALUE port)
+{
+#ifdef HAVE_FUNC_RB_IO_STDIO_FILE
+    rb_io_t *fp;
+#else
+    OpenFile* fp;
+    #define rb_io_stdio_file GetWriteFile
+#endif
+
+    if (TYPE( port) != T_FILE)
+        rb_raise( rb_eArgError, "Not an IO object: %s",
+                                StringValueCStr( port));
+    GetOpenFile( port, fp);
+    PQtrace( get_pgconn( self)->conn, rb_io_stdio_file( fp));
+    return RTEST( rb_block_given_p()) ?
+        rb_ensure( rb_yield, Qnil, pgconn_untrace, self) : Qnil;
+}
+
+/*
+ * call-seq:
+ *    conn.untrace()
+ *
+ * Disables the message tracing.
+ */
+VALUE
+pgconn_untrace( VALUE self)
+{
+    PQuntrace( get_pgconn( self)->conn);
+    return Qnil;
+}
+
+
+
+
+
+
+
+/********************************************************************
+ *
+ * Document-class: Pg::Conn
+ *
+ * The class to access a PostgreSQL database.
+ *
+ * For example, to send a query to the database on the localhost:
+ *
+ *    require "pgsql"
+ *    conn = Pg::Conn.open :dbname => "test1"
+ *    res = conn.exec "select * from mytable;"
+ *
+ * See the Pg::Result class for information on working with the results of a
+ * query.
+ */
+
+void
+Init_pgsql_conn( void)
+{
+    rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
+
+#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
+    rb_ePgConnFailed  = ERR_DEF( "Failed");
+    rb_ePgConnInvalid = ERR_DEF( "Invalid");
+#undef ERR_DEF
+
+    rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
+    rb_define_singleton_method( rb_cPgConn, "connect", pgconn_s_connect, -1);
+    rb_define_alias( rb_singleton_class( rb_cPgConn), "open", "connect");
+    rb_define_singleton_method( rb_cPgConn, "parse", pgconn_s_parse, 1);
+    rb_define_method( rb_cPgConn, "initialize", pgconn_init, -1);
+    rb_define_method( rb_cPgConn, "close", pgconn_close, 0);
+    rb_define_alias( rb_cPgConn, "finish", "close");
+    rb_define_method( rb_cPgConn, "reset", pgconn_reset, 0);
+
+    rb_define_method( rb_cPgConn, "protocol_version",
+                                                   pgconn_protocol_version, 0);
+    rb_define_method( rb_cPgConn, "server_version", pgconn_server_version, 0);
+
+    rb_define_method( rb_cPgConn, "db", pgconn_db, 0);
+    rb_define_alias( rb_cPgConn, "dbname", "db");
+    rb_define_method( rb_cPgConn, "host", pgconn_host, 0);
+    rb_define_method( rb_cPgConn, "options", pgconn_options, 0);
+    rb_define_method( rb_cPgConn, "port", pgconn_port, 0);
+    rb_define_method( rb_cPgConn, "tty", pgconn_tty, 0);
+    rb_define_method( rb_cPgConn, "user", pgconn_user, 0);
+    rb_define_method( rb_cPgConn, "status", pgconn_status, 0);
+    rb_define_method( rb_cPgConn, "error", pgconn_error, 0);
+
+#define CONN_DEF( c) \
+            rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
+    CONN_DEF( OK);
+    CONN_DEF( BAD);
+#undef CONN_DEF
+
+    rb_define_method( rb_cPgConn, "socket", pgconn_socket, 0);
+
+    rb_define_method( rb_cPgConn, "trace", pgconn_trace, 1);
+    rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
+
+
+#ifdef TODO_DONE
+
+    rb_define_singleton_method( rb_cPgConn, "translate_results=",
+                                           pgconn_s_translate_results_set, 1);
+
+    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
+
+    rb_define_method( rb_cPgConn, "format",
+                                            pgconn_format, 1);
+    rb_define_method( rb_cPgConn, "escape_bytea",
+                                            pgconn_escape_bytea, 1);
+    rb_define_singleton_method( rb_cPgConn, "escape_bytea",
+                                            pgconn_escape_bytea, 1);
+    rb_define_method( rb_cPgConn, "unescape_bytea",
+                                            pgconn_unescape_bytea, 1);
+    rb_define_singleton_method( rb_cPgConn, "unescape_bytea",
+                                            pgconn_unescape_bytea, 1);
+    rb_define_method( rb_cPgConn, "stringize",
+                                            pgconn_stringize, 1);
+    rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);
+
+    rb_define_method( rb_cPgConn, "quote_bytea",
+                                            pgconn_quote_bytea, 1);
+    rb_define_method( rb_cPgConn, "quote", pgconn_quote, 1);
+    rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
+    rb_define_alias( rb_cPgConn, "q", "quote_all");
+
+    rb_define_method( rb_cPgConn, "quote_identifier",
+                                                pgconn_quote_identifier, 1);
+    rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
+
+    rb_define_method( rb_cPgConn, "client_encoding",
+                                                pgconn_client_encoding, 0);
+    rb_define_method( rb_cPgConn, "set_client_encoding",
+                                               pgconn_set_client_encoding, 1);
+
+    rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
+    rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
+    rb_define_method( rb_cPgConn, "fetch", pgconn_fetch, 0);
+
+    rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
+    rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
+    rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
+    rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
+    rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
+
+#define TRANS_DEF( c) \
+            rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
+    TRANS_DEF( IDLE);
+    TRANS_DEF( ACTIVE);
+    TRANS_DEF( INTRANS);
+    TRANS_DEF( INERROR);
+    TRANS_DEF( UNKNOWN);
+#undef TRANS_DEF
+    rb_define_method( rb_cPgConn, "transaction", pgconn_transaction, -1);
+    rb_define_method( rb_cPgConn, "subtransaction", pgconn_subtransaction, -1);
+    rb_define_alias( rb_cPgConn, "savepoint", "subtransaction");
+    rb_define_method( rb_cPgConn, "transaction_status",
+                                                 pgconn_transaction_status, 0);
+
+    rb_define_method( rb_cPgConn, "copy_stdin", pgconn_copy_stdin, -1);
+    rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
+    rb_define_alias( rb_cPgConn, "put", "putline");
+    rb_define_method( rb_cPgConn, "copy_stdout", pgconn_copy_stdout, -1);
+    rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
+    rb_define_alias( rb_cPgConn, "get", "getline");
+    rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
+    rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
+
+#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
+    rb_ePgConnError  = ERR_DEF( "Error");
+    rb_ePgTransError = ERR_DEF( "InTransaction");
+#undef ERR_DEF
+
+    id_to_postgres = rb_intern( "to_postgres");
+    id_raw         = rb_intern( "raw");
+    id_format      = rb_intern( "format");
+    id_iso8601     = rb_intern( "iso8601");
+    id_call        = 0;
+    id_on_notice   = 0;
+    id_gsub_bang   = rb_intern( "gsub!");
+    id_command     = rb_intern( "command");
+    id_parameters  = rb_intern( "parameters");
+
+    pg_escape_regex = Qnil;
+#endif
+}
+
+
+#ifdef TODO_DONE
+
+static ID id_to_postgres;
+static ID id_raw;
+static ID id_format;
+static ID id_iso8601;
+static ID id_call;
+static ID id_on_notice;
+static ID id_gsub_bang;
+static id_command;
+static id_parameters;
+
+static VALUE pg_escape_regex;
+
+static int       pg_checkresult( PGresult *result);
+static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
+
+static VALUE pgconn_s_translate_results_set( VALUE cls, VALUE fact);
+
+static void  notice_receiver( void *self, const PGresult *result);
+static VALUE pgconn_on_notice( VALUE self);
+
+static VALUE pgconn_format( VALUE self, VALUE obj);
+static VALUE pgconn_escape_bytea( VALUE self, VALUE obj);
+static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
+static int   needs_dquote_string( VALUE str);
+static VALUE dquote_string( VALUE str);
+static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
+static VALUE pgconn_stringize( VALUE self, VALUE obj);
+static VALUE gsub_escape_i( VALUE c, VALUE arg);
+static VALUE pgconn_stringize_line( VALUE self, VALUE ary);
+
+static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
+static VALUE quote_string( VALUE conn, VALUE str);
+static VALUE quote_array( VALUE self, VALUE result, VALUE ary);
+static VALUE pgconn_quote( VALUE self, VALUE value);
+static void  quote_all( VALUE self, VALUE ary, VALUE res);
+static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
+
+static VALUE pgconn_client_encoding( VALUE obj);
+static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
+
+
+static char **params_to_strings( VALUE conn, VALUE params);
+static void free_strings( char **strs, int len);
+static PGresult *exec_sql_statement( int argc, VALUE *argv, VALUE self, int store);
+static VALUE yield_or_return_result( VALUE res);
+static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
+static VALUE clear_resultqueue( VALUE obj);
+static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
+static VALUE pgconn_fetch( VALUE obj);
+
+static VALUE pgconn_query(         int argc, VALUE *argv, VALUE obj);
+static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_get_notify( VALUE self);
+
+static VALUE rescue_transaction( VALUE self);
+static VALUE yield_transaction( VALUE self);
+static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
+static VALUE rescue_subtransaction( VALUE ary);
+static VALUE yield_subtransaction( VALUE ary);
+static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_transaction_status( VALUE self);
+
+static VALUE put_end( VALUE conn);
+static VALUE pgconn_copy_stdin( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_putline( VALUE self, VALUE str);
+static VALUE get_end( VALUE conn);
+static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_each_line( VALUE self);
+
+static void pgconn_cmd_set( VALUE self, VALUE command, VALUE params);
+static void pgconn_cmd_clear( VALUE self);
+
+static void  pg_raise_pgres( VALUE self, PGresult *result);
+
+
+static const char *str_NULL = "NULL";
+
+static VALUE rb_ePgConnError;
+static VALUE rb_ePgTransError;
+
+
+int translate_results = 1;
+
+
+int
+pg_checkresult( PGresult *result)
+{
+    int s;
+
+    s = PQresultStatus( result);
+    switch (s) {
+        case PGRES_EMPTY_QUERY:
+        case PGRES_COMMAND_OK:
+        case PGRES_TUPLES_OK:
+        case PGRES_COPY_OUT:
+        case PGRES_COPY_IN:
+            break;
+        case PGRES_BAD_RESPONSE:
+        case PGRES_NONFATAL_ERROR:
+        case PGRES_FATAL_ERROR:
+            return -1;
+            break;
+        default:
+            PQclear( result);
+            rb_raise( rb_ePgError, "internal error: unknown result status.");
+            break;
+    }
+    return s;
+}
+
+PGresult *
+pg_pqexec( PGconn *conn, VALUE cmd)
+{
+    PGresult *result;
+
+    result = PQexec( conn, RSTRING_PTR( cmd));
+    if (result == NULL)
+        pg_raise_pgconn( conn);
+    if (pg_checkresult( result) < 0)
+        rb_exc_raise( pgreserror_new( result, cmd, Qnil));
+    return result;
+}
+
+
+/*
+ * call-seq:
+ *   Pg::Conn.translate_results = boolean
+ *
+ * When true (default), results are translated to appropriate ruby class.
+ * When false, results are returned as +Strings+.
+ *
+ */
+VALUE
+pgconn_s_translate_results_set( VALUE cls, VALUE fact)
+{
+    translate_results = RTEST( fact) ? 1 : 0;
+    return Qnil;
+}
+
+
+PGconn *
+get_pgconn( VALUE obj)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( obj, struct pgconn_data, c);
+    if (c->conn == NULL)
+        rb_raise( rb_ePgError, "not a valid connection");
+    return c->conn;
 }
 
 void
@@ -643,66 +937,6 @@ pgconn_on_notice( VALUE self)
 }
 
 
-
-
-/*
- * call-seq:
- *    conn.socket()  -> io
- *
- * Returns the sockets IO object.
- */
-VALUE
-pgconn_socket( VALUE obj)
-{
-    int fd;
-
-    fd = PQsocket( get_pgconn( obj));
-    return rb_funcall( rb_cIO, id_new, 1, INT2NUM( fd));
-}
-
-
-/*
- * call-seq:
- *    conn.trace( port)
- *    conn.trace( port) { ... }
- *
- * Enables tracing message passing between backend.
- * The trace message will be written to the _port_ object,
- * which is an instance of the class +File+ (or at least +IO+).
- *
- * In case a block is given +untrace+ will be called automatically.
- */
-VALUE
-pgconn_trace( VALUE self, VALUE port)
-{
-#ifdef HAVE_FUNC_RB_IO_STDIO_FILE
-    rb_io_t *fp;
-#else
-    OpenFile* fp;
-    #define rb_io_stdio_file GetWriteFile
-#endif
-
-    if (TYPE( port) != T_FILE)
-        rb_raise( rb_eArgError, "Not an IO object: %s",
-                                StringValueCStr( port));
-    GetOpenFile( port, fp);
-    PQtrace( get_pgconn( self), rb_io_stdio_file( fp));
-    return RTEST( rb_block_given_p()) ?
-        rb_ensure( rb_yield, Qnil, pgconn_untrace, self) : Qnil;
-}
-
-/*
- * call-seq:
- *    conn.untrace()
- *
- * Disables the message tracing.
- */
-VALUE
-pgconn_untrace( VALUE self)
-{
-    PQuntrace( get_pgconn( self));
-    return Qnil;
-}
 
 
 /*
@@ -2012,23 +2246,6 @@ pg_raise_pgres( VALUE self, PGresult *result)
     rb_exc_raise( pgreserror_new( result, c, p));
 }
 
-
-/********************************************************************
- *
- * Document-class: Pg::Conn
- *
- * The class to access a PostgreSQL database.
- *
- * For example, to send a query to the database on the localhost:
- *
- *    require "pgsql"
- *    conn = Pg::Conn.open :dbname => "test1"
- *    res = conn.exec "select * from mytable;"
- *
- * See the Pg::Result class for information on working with the results of a
- * query.
- */
-
 /********************************************************************
  *
  * Document-class: Pg::Conn::Error
@@ -2036,127 +2253,5 @@ pg_raise_pgres( VALUE self, PGresult *result)
  * Error while querying from a PostgreSQL connection.
  */
 
-void
-Init_pgsql_conn( void)
-{
-    rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
-
-    rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
-    rb_define_singleton_method( rb_cPgConn, "connect", pgconn_s_connect, -1);
-    rb_define_alias( rb_singleton_class( rb_cPgConn), "open", "connect");
-
-    rb_define_singleton_method( rb_cPgConn, "parse", pgconn_s_parse, 1);
-    rb_define_singleton_method( rb_cPgConn, "translate_results=",
-                                           pgconn_s_translate_results_set, 1);
-
-#define CONN_DEF( c) \
-            rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
-    CONN_DEF( OK);
-    CONN_DEF( BAD);
-#undef CONN_DEF
-
-    rb_define_method( rb_cPgConn, "initialize", pgconn_init, -1);
-    rb_define_method( rb_cPgConn, "close", pgconn_close, 0);
-    rb_define_alias( rb_cPgConn, "finish", "close");
-    rb_define_method( rb_cPgConn, "reset", pgconn_reset, 0);
-    rb_define_method( rb_cPgConn, "protocol_version",
-                                                   pgconn_protocol_version, 0);
-    rb_define_method( rb_cPgConn, "server_version", pgconn_server_version, 0);
-    rb_define_method( rb_cPgConn, "db", pgconn_db, 0);
-    rb_define_alias( rb_cPgConn, "dbname", "db");
-    rb_define_method( rb_cPgConn, "host", pgconn_host, 0);
-    rb_define_method( rb_cPgConn, "options", pgconn_options, 0);
-    rb_define_method( rb_cPgConn, "port", pgconn_port, 0);
-    rb_define_method( rb_cPgConn, "tty", pgconn_tty, 0);
-    rb_define_method( rb_cPgConn, "user", pgconn_user, 0);
-    rb_define_method( rb_cPgConn, "status", pgconn_status, 0);
-    rb_define_method( rb_cPgConn, "error", pgconn_error, 0);
-    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
-
-    rb_define_method( rb_cPgConn, "socket", pgconn_socket, 0);
-
-    rb_define_method( rb_cPgConn, "trace", pgconn_trace, 1);
-    rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
-
-    rb_define_method( rb_cPgConn, "format",
-                                            pgconn_format, 1);
-    rb_define_method( rb_cPgConn, "escape_bytea",
-                                            pgconn_escape_bytea, 1);
-    rb_define_singleton_method( rb_cPgConn, "escape_bytea",
-                                            pgconn_escape_bytea, 1);
-    rb_define_method( rb_cPgConn, "unescape_bytea",
-                                            pgconn_unescape_bytea, 1);
-    rb_define_singleton_method( rb_cPgConn, "unescape_bytea",
-                                            pgconn_unescape_bytea, 1);
-    rb_define_method( rb_cPgConn, "stringize",
-                                            pgconn_stringize, 1);
-    rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);
-
-    rb_define_method( rb_cPgConn, "quote_bytea",
-                                            pgconn_quote_bytea, 1);
-    rb_define_method( rb_cPgConn, "quote", pgconn_quote, 1);
-    rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
-    rb_define_alias( rb_cPgConn, "q", "quote_all");
-
-    rb_define_method( rb_cPgConn, "quote_identifier",
-                                                pgconn_quote_identifier, 1);
-    rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
-
-    rb_define_method( rb_cPgConn, "client_encoding",
-                                                pgconn_client_encoding, 0);
-    rb_define_method( rb_cPgConn, "set_client_encoding",
-                                               pgconn_set_client_encoding, 1);
-
-    rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
-    rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
-    rb_define_method( rb_cPgConn, "fetch", pgconn_fetch, 0);
-
-    rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
-    rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
-    rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
-    rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
-    rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
-
-#define TRANS_DEF( c) \
-            rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
-    TRANS_DEF( IDLE);
-    TRANS_DEF( ACTIVE);
-    TRANS_DEF( INTRANS);
-    TRANS_DEF( INERROR);
-    TRANS_DEF( UNKNOWN);
-#undef TRANS_DEF
-    rb_define_method( rb_cPgConn, "transaction", pgconn_transaction, -1);
-    rb_define_method( rb_cPgConn, "subtransaction", pgconn_subtransaction, -1);
-    rb_define_alias( rb_cPgConn, "savepoint", "subtransaction");
-    rb_define_method( rb_cPgConn, "transaction_status",
-                                                 pgconn_transaction_status, 0);
-
-    rb_define_method( rb_cPgConn, "copy_stdin", pgconn_copy_stdin, -1);
-    rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
-    rb_define_alias( rb_cPgConn, "put", "putline");
-    rb_define_method( rb_cPgConn, "copy_stdout", pgconn_copy_stdout, -1);
-    rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
-    rb_define_alias( rb_cPgConn, "get", "getline");
-    rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
-    rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
-
-    rb_ePgConnectFailed = rb_define_class_under( rb_mPg, "ConnectFailed",
-                                                                rb_ePgError);
-#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
-    rb_ePgConnError  = ERR_DEF( "Error");
-    rb_ePgTransError = ERR_DEF( "InTransaction");
-#undef ERR_DEF
-
-    id_to_postgres = rb_intern( "to_postgres");
-    id_raw         = rb_intern( "raw");
-    id_format      = rb_intern( "format");
-    id_iso8601     = rb_intern( "iso8601");
-    id_call        = 0;
-    id_on_notice   = 0;
-    id_gsub_bang   = rb_intern( "gsub!");
-    id_command     = rb_intern( "command");
-    id_parameters  = rb_intern( "parameters");
-
-    pg_escape_regex = Qnil;
-}
+#endif
 
