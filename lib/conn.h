@@ -20,6 +20,8 @@ struct pgconn_data {
 extern VALUE rb_cPgConn;
 
 
+extern struct pgconn_data *get_pgconn( VALUE obj);
+
 extern void Init_pgsql_conn( void);
 
 

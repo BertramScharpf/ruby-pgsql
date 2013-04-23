@@ -5,10 +5,6 @@
 
 #include "conn_quote.h"
 
-#ifdef TODO_DONE
-#include "result.h"
-#endif
-
 
 extern VALUE pg_currency_class( void);
 
@@ -24,6 +20,15 @@ static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
 static VALUE gsub_escape_i( VALUE c, VALUE arg);
+
+static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
+static VALUE pgconn_quote( VALUE self, VALUE value);
+static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
+static VALUE quote_string( VALUE conn, VALUE str);
+static VALUE quote_array( VALUE self, VALUE result, VALUE ary);
+static void  quote_all( VALUE self, VALUE ary, VALUE res);
+
+static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
 
 
 
@@ -388,6 +393,228 @@ gsub_escape_i( VALUE c, VALUE arg)
 
 
 
+/*
+ * call-seq:
+ *   conn.quote_bytea( str)  -> str
+ *
+ * Converts a string of binary data into an escaped version.
+ * Example:
+ *
+ *   conn.quote_bytea "abc"    # => "E'\\\\x616263'::bytea"
+ *                             # (Two backslashes, then an 'x'.)
+ *
+ * This is what you need, when you execute an +INSERT+ statement and mention
+ * you object in the statement string.
+ *
+ * If you pass your object as a Conn#exec parameter, as a +COPY+ input line or
+ * as a subject to +Conn#quote+-ing you should call Conn.escape_bytea().
+ *
+ * See the PostgreSQL documentation on PQescapeByteaConn
+ * [http://www.postgresql.org/docs/current/interactive/libpq-exec.html#LIBPQ-PQESCAPEBYTEACONN]
+ * for more information.
+ */
+VALUE
+pgconn_quote_bytea( VALUE self, VALUE str)
+{
+    char *t;
+    size_t l;
+    VALUE ret;
+
+    StringValue( str);
+    t = (char *) PQescapeByteaConn( get_pgconn( self)->conn,
+            (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
+    ret = rb_str_buf_new2( " E'");
+    rb_str_buf_cat( ret, t, l - 1);
+    rb_str_buf_cat2( ret, "'::bytea");
+    PQfreemem( t);
+    OBJ_INFECT( ret, str);
+    return ret;
+}
+
+/*
+ * call-seq:
+ *   conn.quote( obj) -> str
+ *
+ * This methods makes a PostgreSQL constant out of everything.  You may mention
+ * any result in a statement passed to Conn#exec.
+ *
+ * If you prefer to pass your objects as a parameter to +exec+, +query+ etc.
+ * or as a field after a +COPY+ statement you should call conn#stringize.
+ *
+ * This method is to prevent you from saying something like
+ * <code>"insert into ... (E'#{conn.stringize obj}', ...);"</code>.  It is
+ * more efficient to say
+ *
+ *   conn.exec "insert into ... (#{conn.quote obj}, ...);"
+ *
+ * Your self-defined classes will be checked whether they have a method named
+ * +to_postgres+.  If that doesn't exist the object will be converted by
+ * +to_s+.
+ *
+ * Call Pg::Conn#quote_bytea if you want to tell your string is a byte array.
+ */
+VALUE
+pgconn_quote( VALUE self, VALUE obj)
+{
+    VALUE o, result;
+
+    o = rb_funcall( self, id_format, 1, obj);
+    if (!NIL_P( o))
+        obj = o;
+    switch (TYPE( obj)) {
+        case T_STRING:
+            return quote_string( self, obj);
+        case T_NIL:
+            return rb_str_new2( str_NULL);
+        case T_TRUE:
+        case T_FALSE:
+        case T_FIXNUM:
+            return rb_obj_as_string( obj);
+        case T_BIGNUM:
+        case T_FLOAT:
+            return rb_obj_as_string( obj);
+
+        case T_ARRAY:
+            result = rb_str_buf_new2( "ARRAY[");
+            quote_array( self, result, obj);
+            rb_str_buf_cat2( result, "]");
+            break;
+
+        default:
+            if (rb_obj_is_kind_of( obj, rb_cNumeric))
+                result = rb_obj_as_string( obj);
+            else {
+                VALUE co;
+                char *type;
+
+                co = CLASS_OF( obj);
+                if        (co == rb_cTime) {
+                    result = rb_funcall( obj, id_iso8601, 0);
+                    type = "timestamptz";
+                } else if (co == rb_cDate) {
+                    result = rb_obj_as_string( obj);
+                    type = "date";
+                } else if (co == rb_cDateTime) {
+                    result = rb_obj_as_string( obj);
+                    type = "timestamptz";
+                } else if (co == pg_currency_class() &&
+                                    rb_respond_to( obj, id_raw)) {
+                    result = rb_funcall( obj, id_raw, 0);
+                    StringValue( result);
+                    type = "money";
+                } else if (rb_respond_to( obj, id_to_postgres)) {
+                    result = rb_funcall( obj, id_to_postgres, 0);
+                    StringValue( result);
+                    type = NULL;
+                } else {
+                    result = rb_obj_as_string( obj);
+                    type = "unknown";
+                }
+                result = quote_string( self, result);
+                if (type != NULL) {
+                    rb_str_buf_cat2( result, "::");
+                    rb_str_buf_cat2( result, type);
+                }
+                OBJ_INFECT( result, obj);
+            }
+            break;
+    }
+    return result;
+}
+
+/*
+ * call-seq:
+ *   conn.quote_all( *args) -> str
+ *
+ * Does a #quote for every argument and pastes the results
+ * together with comma.
+ */
+VALUE
+pgconn_quote_all( int argc, VALUE *argv, VALUE self)
+{
+    VALUE res;
+    VALUE args;
+
+    res = rb_str_new( NULL, 0);
+    rb_scan_args( argc, argv, "0*", &args);
+    quote_all( self, args, res);
+    return res;
+}
+
+VALUE
+quote_string( VALUE conn, VALUE str)
+{
+    char *p;
+    VALUE result;
+
+    p = PQescapeLiteral( get_pgconn( conn)->conn, RSTRING_PTR( str), RSTRING_LEN( str));
+    result = rb_str_new2( p);
+    PQfreemem( p);
+    OBJ_INFECT( result, str);
+    return result;
+}
+
+VALUE
+quote_array( VALUE self, VALUE result, VALUE ary)
+{
+    long i, j;
+    VALUE *o;
+    VALUE cf, co;
+
+    cf = Qundef;
+    for (o = RARRAY_PTR( ary), j = RARRAY_LEN( ary); j; ++o, --j) {
+        co = CLASS_OF( *o);
+        if (cf == Qundef)
+            cf = co;
+        else {
+            if (co != cf)
+                rb_raise( rb_ePgError, "Array members of different type.");
+            rb_str_buf_cat2( result, ",");
+        }
+        rb_str_buf_append( result, pgconn_quote( self, *o));
+    }
+    return result;
+}
+
+void
+quote_all( VALUE self, VALUE ary, VALUE res)
+{
+    VALUE *p;
+    long len;
+
+    for (p = RARRAY_PTR( ary), len = RARRAY_LEN( ary); len; len--, p++) {
+        if (TYPE( *p) == T_ARRAY)
+            quote_all( self, *p, res);
+        else {
+            if (RSTRING_LEN( res) > 0)
+                rb_str_buf_cat2( res, ",");
+            rb_str_buf_append( res, pgconn_quote( self, *p));
+        }
+    }
+}
+
+
+
+/*
+ * call-seq:
+ *    conn.quote_identifier() -> str
+ *
+ * Put double quotes around an identifier containing non-letters
+ * or upper case.
+ */
+VALUE
+pgconn_quote_identifier( VALUE self, VALUE str)
+{
+    char *p;
+    VALUE result;
+
+    StringValue( str);
+    p = PQescapeIdentifier( get_pgconn( self)->conn, RSTRING_PTR( str), RSTRING_LEN( str));
+    result = rb_str_new2( p);
+    PQfreemem( p);
+    OBJ_INFECT( result, str);
+    return result;
+}
 
 
 
@@ -410,7 +637,6 @@ Init_pgsql_conn_quote( void)
     rb_define_method( rb_cPgConn, "stringize", pgconn_stringize, 1);
     rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);
 
-#ifdef TODO_DONE
     rb_define_method( rb_cPgConn, "quote_bytea", pgconn_quote_bytea, 1);
     rb_define_method( rb_cPgConn, "quote", pgconn_quote, 1);
     rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
@@ -418,7 +644,6 @@ Init_pgsql_conn_quote( void)
 
     rb_define_method( rb_cPgConn, "quote_identifier", pgconn_quote_identifier, 1);
     rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
-#endif
 
     id_format      = rb_intern( "format");
     id_iso8601     = rb_intern( "iso8601");
