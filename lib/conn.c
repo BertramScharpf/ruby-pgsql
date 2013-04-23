@@ -7,7 +7,6 @@
 
 #ifdef TODO_DONE
 #include "result.h"
-#endif
 
 
 #if defined( HAVE_HEADER_ST_H)
@@ -31,6 +30,7 @@
     #include <libpq/libpq-fs.h>
 #endif
 
+#endif
 
 static void  pgconn_mark( struct pgconn_data *ptr);
 static void  pgconn_free( struct pgconn_data *ptr);
@@ -691,11 +691,9 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
 
     Init_pgsql_conn_quote();
+    Init_pgsql_conn_exec();
 
 #ifdef TODO_DONE
-
-    rb_define_singleton_method( rb_cPgConn, "translate_results=",
-                                           pgconn_s_translate_results_set, 1);
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
@@ -737,7 +735,6 @@ Init_pgsql_conn( void)
     rb_ePgTransError = ERR_DEF( "InTransaction");
 #undef ERR_DEF
 
-    id_call        = 0;
     id_on_notice   = 0;
     id_command     = rb_intern( "command");
     id_parameters  = rb_intern( "parameters");
@@ -748,7 +745,6 @@ Init_pgsql_conn( void)
 
 #ifdef TODO_DONE
 
-static ID id_call;
 static ID id_on_notice;
 static id_command;
 static id_parameters;
@@ -756,8 +752,6 @@ static id_parameters;
 
 static int       pg_checkresult( PGresult *result);
 static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
-
-static VALUE pgconn_s_translate_results_set( VALUE cls, VALUE fact);
 
 static void  notice_receiver( void *self, const PGresult *result);
 static VALUE pgconn_on_notice( VALUE self);
@@ -807,9 +801,6 @@ static VALUE rb_ePgConnError;
 static VALUE rb_ePgTransError;
 
 
-int translate_results = 1;
-
-
 int
 pg_checkresult( PGresult *result)
 {
@@ -850,22 +841,6 @@ pg_pqexec( PGconn *conn, VALUE cmd)
 }
 
 
-/*
- * call-seq:
- *   Pg::Conn.translate_results = boolean
- *
- * When true (default), results are translated to appropriate ruby class.
- * When false, results are returned as +Strings+.
- *
- */
-VALUE
-pgconn_s_translate_results_set( VALUE cls, VALUE fact)
-{
-    translate_results = RTEST( fact) ? 1 : 0;
-    return Qnil;
-}
-
-
 PGconn *
 get_pgconn( VALUE obj)
 {
@@ -880,12 +855,14 @@ get_pgconn( VALUE obj)
 void
 notice_receiver( void *self, const PGresult *result)
 {
-    VALUE block, err;
+    VALUE block;
 
     block = rb_ivar_get( (VALUE) self, id_on_notice);
     if (block != Qnil) {
+        VALUE err;
+
         err = pgreserror_new( (PGresult *) result, Qnil, Qnil);
-        rb_funcall( block, id_call, 1, err);
+        rb_proc_call( b, rb_ary_new4( 1l, &err));
         /* PQclear will be done by Postgres. */
     }
 }
@@ -915,11 +892,8 @@ pgconn_on_notice( VALUE self)
     PGconn *conn;
 
     conn = get_pgconn( self);
-    if (PQsetNoticeReceiver( conn, NULL, NULL) != &notice_receiver) {
-        if (!id_call)
-            id_call = rb_intern( "call");
+    if (PQsetNoticeReceiver( conn, NULL, NULL) != &notice_receiver)
         PQsetNoticeReceiver( conn, &notice_receiver, (void *) self);
-    }
     if (!id_on_notice)
         id_on_notice = rb_intern( "@on_notice");
     rb_ivar_set( self, id_on_notice, rb_block_proc());

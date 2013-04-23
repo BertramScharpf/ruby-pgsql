@@ -7,7 +7,9 @@
 
 
 static ID id_keys;
+#ifndef HAVE_FUNC_RB_PROC_ARITY
 static ID id_arity;
+#endif
 
 static VALUE pgrow_init( VALUE self, VALUE keys);
 static VALUE pgrow_aref( int argc, VALUE * argv, VALUE self);
@@ -91,7 +93,11 @@ pgrow_each( VALUE self)
 {
     int arity;
 
+#ifndef HAVE_FUNC_RB_PROC_ARITY
     arity = NUM2INT( rb_funcall( rb_block_proc(), id_arity, 0));
+#else
+    arity = rb_proc_arity( rb_block_proc());
+#endif
     return arity == 2 ? pgrow_each_pair( self) : pgrow_each_value( self);
 }
 
@@ -186,6 +192,8 @@ Init_pgsql_row( void)
     rb_define_method( rb_cPgRow, "to_hash", pgrow_to_hash, 0);
 
     id_keys  = rb_intern( "@keys");
+#ifndef HAVE_FUNC_RB_PROC_ARITY
     id_arity = rb_intern( "arity");
+#endif
 }
 

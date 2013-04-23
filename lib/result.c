@@ -5,6 +5,107 @@
 
 #include "result.h"
 
+
+static VALUE rb_cBigDecimal;
+
+
+
+
+/********************************************************************
+ *
+ * Document-class: Pg::Result
+ *
+ * The class to represent the query result tuples (rows).
+ * An instance of this class is created as the result of every query.
+ * You may need to invoke the #clear method of the instance when finished with
+ * the result for better memory performance.
+ */
+
+/********************************************************************
+ *
+ * Document-class: Pg::Result::Error
+ *
+ * The information in a result that is an error.
+ */
+
+void
+Init_pgsql_result( void)
+{
+    rb_require( "bigdecimal");
+    rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
+
+    rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
+
+#ifdef TODO_DONE
+#if 0
+    rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
+#else
+    rb_undef_method( CLASS_OF( rb_cPgResult), "new");
+#endif
+    rb_include_module( rb_cPgResult, rb_mEnumerable);
+
+#define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
+    RESC_DEF( EMPTY_QUERY);
+    RESC_DEF( COMMAND_OK);
+    RESC_DEF( TUPLES_OK);
+    RESC_DEF( COPY_OUT);
+    RESC_DEF( COPY_IN);
+    RESC_DEF( BAD_RESPONSE);
+    RESC_DEF( NONFATAL_ERROR);
+    RESC_DEF( FATAL_ERROR);
+#undef RESC_DEF
+
+    rb_define_method( rb_cPgResult, "status", pgresult_status, 0);
+
+    rb_define_singleton_method( rb_cPgResult, "translate_results=", pgresult_s_translate_results_set, 1);
+
+    rb_define_alias( rb_cPgResult, "result", "entries");
+    rb_define_alias( rb_cPgResult, "rows", "entries");
+    rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
+    rb_define_method( rb_cPgResult, "each", pgresult_each, 0);
+    rb_define_method( rb_cPgResult, "fields", pgresult_fields, 0);
+    rb_define_method( rb_cPgResult, "num_tuples", pgresult_num_tuples, 0);
+    rb_define_method( rb_cPgResult, "num_fields", pgresult_num_fields, 0);
+    rb_define_method( rb_cPgResult, "fieldname", pgresult_fieldname, 1);
+    rb_define_method( rb_cPgResult, "fieldnum", pgresult_fieldnum, 1);
+    rb_define_method( rb_cPgResult, "type", pgresult_type, 1);
+    rb_define_method( rb_cPgResult, "size", pgresult_size, 1);
+    rb_define_method( rb_cPgResult, "getvalue", pgresult_getvalue, 2);
+    rb_define_method( rb_cPgResult, "getvalue_byname",
+                                                 pgresult_getvalue_byname, 2);
+    rb_define_method( rb_cPgResult, "getlength", pgresult_getlength, 2);
+    rb_define_method( rb_cPgResult, "getisnull", pgresult_getisnull, 2);
+    rb_define_method( rb_cPgResult, "cmdtuples", pgresult_cmdtuples, 0);
+    rb_define_method( rb_cPgResult, "cmdstatus", pgresult_cmdstatus, 0);
+    rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
+    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
+    rb_define_alias( rb_cPgResult, "close", "clear");
+
+
+    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error",
+                                                                rb_ePgError);
+    rb_define_alloc_func( rb_ePgResError, pgreserror_alloc);
+
+    rb_define_attr( rb_ePgResError, "command",    1, 0);
+    rb_define_attr( rb_ePgResError, "parameters", 1, 0);
+
+    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
+    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
+    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
+    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
+    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
+    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
+
+
+    id_parse    = rb_intern( "parse");
+    id_index    = rb_intern( "index");
+#endif
+}
+
+
+
+
+#ifdef TODO_DONE
 #include "row.h"
 #include "conn.h"
 
@@ -20,7 +121,8 @@
 #endif
 
 
-VALUE rb_cBigDecimal;
+static int translate_results = 1;
+
 
 static ID id_parse;
 static ID id_index;
@@ -34,6 +136,8 @@ static VALUE pgreserror_alloc( VALUE cls);
 static void  free_pgresult( struct pgresult_data *ptr);
 static VALUE pgresult_alloc( VALUE cls);
 static VALUE pgresult_status( VALUE obj);
+static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
+
 static VALUE pgresult_aref( int argc, VALUE *argv, VALUE obj);
 static VALUE pgresult_fields( VALUE obj);
 static VALUE pgresult_num_tuples( VALUE obj);
@@ -252,6 +356,23 @@ pgresult_status( VALUE obj)
 }
 
 
+/*
+ * call-seq:
+ *   Pg::Conn.translate_results = boolean
+ *
+ * When true (default), results are translated to appropriate ruby class.
+ * When false, results are returned as +Strings+.
+ *
+ */
+VALUE
+pgresult_s_translate_results_set( VALUE cls, VALUE fact)
+{
+    translate_results = RTEST( fact) ? 1 : 0;
+    return Qnil;
+}
+
+
+
 VALUE
 fetch_fields( PGresult *result)
 {
@@ -276,6 +397,7 @@ field_index( VALUE fields, VALUE name)
     VALUE ret;
 
     ret = rb_funcall( fields, id_index, 1, name);
+#error Mach das eleganter!
     if (ret == Qnil)
         rb_raise( rb_ePgError, "%s: field not found", RSTRING_PTR( name));
     return ret;
@@ -351,6 +473,7 @@ fetch_pgrow( PGresult *result, int row_num, VALUE fields)
     int i, l;
 
     row = rb_funcall( rb_cPgRow, id_new, 1, fields);
+#error Do this with a C function!
     for (i = 0, l = RARRAY_LEN( row); l; ++i, --l)
         rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
     return row;
@@ -700,88 +823,5 @@ pgresult_clear( VALUE obj)
 
 
 
-/********************************************************************
- *
- * Document-class: Pg::Result
- *
- * The class to represent the query result tuples (rows).
- * An instance of this class is created as the result of every query.
- * You may need to invoke the #clear method of the instance when finished with
- * the result for better memory performance.
- */
-
-/********************************************************************
- *
- * Document-class: Pg::Result::Error
- *
- * The information in a result that is an error.
- */
-
-void
-Init_pgsql_result( void)
-{
-    rb_require( "bigdecimal");
-    rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
-
-    rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
-#if 0
-    rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
-#else
-    rb_undef_method( CLASS_OF( rb_cPgResult), "new");
 #endif
-    rb_include_module( rb_cPgResult, rb_mEnumerable);
-
-#define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
-    RESC_DEF( EMPTY_QUERY);
-    RESC_DEF( COMMAND_OK);
-    RESC_DEF( TUPLES_OK);
-    RESC_DEF( COPY_OUT);
-    RESC_DEF( COPY_IN);
-    RESC_DEF( BAD_RESPONSE);
-    RESC_DEF( NONFATAL_ERROR);
-    RESC_DEF( FATAL_ERROR);
-#undef RESC_DEF
-
-    rb_define_method( rb_cPgResult, "status", pgresult_status, 0);
-    rb_define_alias( rb_cPgResult, "result", "entries");
-    rb_define_alias( rb_cPgResult, "rows", "entries");
-    rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
-    rb_define_method( rb_cPgResult, "each", pgresult_each, 0);
-    rb_define_method( rb_cPgResult, "fields", pgresult_fields, 0);
-    rb_define_method( rb_cPgResult, "num_tuples", pgresult_num_tuples, 0);
-    rb_define_method( rb_cPgResult, "num_fields", pgresult_num_fields, 0);
-    rb_define_method( rb_cPgResult, "fieldname", pgresult_fieldname, 1);
-    rb_define_method( rb_cPgResult, "fieldnum", pgresult_fieldnum, 1);
-    rb_define_method( rb_cPgResult, "type", pgresult_type, 1);
-    rb_define_method( rb_cPgResult, "size", pgresult_size, 1);
-    rb_define_method( rb_cPgResult, "getvalue", pgresult_getvalue, 2);
-    rb_define_method( rb_cPgResult, "getvalue_byname",
-                                                 pgresult_getvalue_byname, 2);
-    rb_define_method( rb_cPgResult, "getlength", pgresult_getlength, 2);
-    rb_define_method( rb_cPgResult, "getisnull", pgresult_getisnull, 2);
-    rb_define_method( rb_cPgResult, "cmdtuples", pgresult_cmdtuples, 0);
-    rb_define_method( rb_cPgResult, "cmdstatus", pgresult_cmdstatus, 0);
-    rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
-    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
-    rb_define_alias( rb_cPgResult, "close", "clear");
-
-
-    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error",
-                                                                rb_ePgError);
-    rb_define_alloc_func( rb_ePgResError, pgreserror_alloc);
-
-    rb_define_attr( rb_ePgResError, "command",    1, 0);
-    rb_define_attr( rb_ePgResError, "parameters", 1, 0);
-
-    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
-    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
-    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
-    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
-    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
-    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
-
-
-    id_parse    = rb_intern( "parse");
-    id_index    = rb_intern( "index");
-}
 

@@ -14,8 +14,8 @@ static VALUE pgconn_escape_bytea(   VALUE self, VALUE obj);
 static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
 extern VALUE string_unescape_bytea( char *escaped);
 
-static VALUE pgconn_stringize( VALUE self, VALUE obj);
-static VALUE pgconn_stringize_line( VALUE self, VALUE ary);
+extern VALUE pgconn_stringize( VALUE self, VALUE obj);
+extern VALUE pgconn_stringize_line( VALUE self, VALUE ary);
 static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);

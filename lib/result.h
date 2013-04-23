@@ -12,8 +12,13 @@ struct pgresult_data {
     struct pgconn_data *conn;
 };
 
-extern VALUE rb_cBigDecimal;
 
+
+
+extern void Init_pgsql_result( void);
+
+
+#ifdef TODO_DONE
 extern VALUE pgreserror_new( PGresult *ptr, VALUE cmd, VALUE args);
 
 extern PGresult *get_pgresult( VALUE obj);
@@ -28,9 +33,8 @@ extern VALUE field_index( VALUE fields, VALUE name);
 extern VALUE fetch_pgresult( PGresult *result, int row, int column);
 extern VALUE fetch_pgrow( PGresult *result, int row_num, VALUE fields);
 extern VALUE pgresult_each( VALUE self);
+#endif
 
-
-extern void Init_pgsql_result( void);
 
 #endif
 
