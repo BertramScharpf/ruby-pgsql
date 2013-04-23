@@ -21,13 +21,9 @@
 
 
 VALUE rb_cBigDecimal;
-VALUE rb_cDate;
-VALUE rb_cDateTime;
-VALUE rb_cCurrency;
 
 static ID id_parse;
 static ID id_index;
-static ID id_currency;
 
 
 static int  get_field_number( PGresult *result, VALUE index);
@@ -65,15 +61,6 @@ static VALUE pgreserror_hint( VALUE self);
 
 static VALUE rb_cPgResult;
 static VALUE rb_ePgResError;
-
-
-VALUE
-pg_currency_class( void)
-{
-    if (NIL_P( rb_cCurrency) && rb_const_defined( rb_cObject, id_currency))
-        rb_cCurrency = rb_const_get( rb_cObject, id_currency);
-    return rb_cCurrency;
-}
 
 
 PGresult *
@@ -414,19 +401,6 @@ pgresult_aref( int argc, VALUE *argv, VALUE obj)
     return ret;
 }
 
-VALUE
-string_unescape_bytea( char *escaped)
-{
-    unsigned char *s;
-    size_t l;
-    VALUE ret;
-
-    s = PQunescapeBytea( (unsigned char *) escaped, &l);
-    ret = rb_str_new( (char *) s, l);
-    PQfreemem( s);
-    return ret;
-}
-
 /*
  * call-seq:
  *    res.each { |tuple| ... }  ->  nil or int
@@ -749,12 +723,6 @@ Init_pgsql_result( void)
     rb_require( "bigdecimal");
     rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
 
-    rb_require( "date");
-    rb_require( "time");
-    rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
-    rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
-    rb_cCurrency   = Qnil;
-
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
 #if 0
     rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
@@ -815,6 +783,5 @@ Init_pgsql_result( void)
 
     id_parse    = rb_intern( "parse");
     id_index    = rb_intern( "index");
-    id_currency = rb_intern( "Currency");
 }
 
