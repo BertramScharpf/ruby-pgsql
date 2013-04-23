@@ -46,6 +46,9 @@ static void  connstr_passwd( VALUE self, VALUE params);
 static VALUE pgconn_close( VALUE obj);
 static VALUE pgconn_reset( VALUE obj);
 
+static VALUE pgconn_client_encoding( VALUE obj);
+static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
+
 static VALUE pgconn_protocol_version( VALUE obj);
 static VALUE pgconn_server_version(   VALUE obj);
 
@@ -226,6 +229,11 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     if (PQstatus( c->conn) == CONNECTION_BAD)
         rb_raise( rb_ePgConnFailed, PQerrorMessage( c->conn));
 
+#ifdef TODO_RUBY19_ENCODING
+    c->external = rb_default_external_encoding();
+    c->internal = rb_default_internal_encoding();
+#endif
+
     return self;
 }
 
@@ -349,6 +357,40 @@ pgconn_reset( VALUE obj)
     PQreset( get_pgconn( obj)->conn);
     return obj;
 }
+
+
+
+/*
+ * call-seq:
+ *    conn.client_encoding() -> str
+ *
+ * Returns the client encoding as a String.
+ */
+VALUE
+pgconn_client_encoding( VALUE self)
+{
+    char *encoding = (char *) pg_encoding_to_char(
+                            PQclientEncoding( get_pgconn( self)->conn));
+    return rb_tainted_str_new2( encoding);
+}
+
+/*
+ * call-seq:
+ *    conn.set_client_encoding( encoding)
+ *
+ * Sets the client encoding to the +encoding+ string.
+ */
+VALUE
+pgconn_set_client_encoding( VALUE self, VALUE str)
+{
+    StringValue( str);
+    if ((PQsetClientEncoding( get_pgconn( self)->conn, RSTRING_PTR( str))) == -1)
+        rb_raise( rb_ePgError, "Invalid encoding name %s", str);
+    return Qnil;
+}
+
+
+
 
 
 /*
@@ -615,6 +657,15 @@ Init_pgsql_conn( void)
     rb_define_alias( rb_cPgConn, "finish", "close");
     rb_define_method( rb_cPgConn, "reset", pgconn_reset, 0);
 
+    rb_define_method( rb_cPgConn, "client_encoding", pgconn_client_encoding, 0);
+    rb_define_method( rb_cPgConn, "set_client_encoding", pgconn_set_client_encoding, 1);
+#ifdef TODO_RUBY19_ENCODING
+    rb_define_method( rb_cPgConn, "external_encoding",  pgconn_externalenc, 0);
+    rb_define_method( rb_cPgConn, "external_encoding=", pgconn_set_externalenc, 0);
+    rb_define_method( rb_cPgConn, "internal_encoding",  pgconn_internalenc, 0);
+    rb_define_method( rb_cPgConn, "internal_encoding=", pgconn_set_internalenc, 0);
+#endif
+
     rb_define_method( rb_cPgConn, "protocol_version",
                                                    pgconn_protocol_version, 0);
     rb_define_method( rb_cPgConn, "server_version", pgconn_server_version, 0);
@@ -671,11 +722,6 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "quote_identifier",
                                                 pgconn_quote_identifier, 1);
     rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
-
-    rb_define_method( rb_cPgConn, "client_encoding",
-                                                pgconn_client_encoding, 0);
-    rb_define_method( rb_cPgConn, "set_client_encoding",
-                                               pgconn_set_client_encoding, 1);
 
     rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
     rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
@@ -770,8 +816,6 @@ static void  quote_all( VALUE self, VALUE ary, VALUE res);
 static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
 
-static VALUE pgconn_client_encoding( VALUE obj);
-static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
 
 
 static char **params_to_strings( VALUE conn, VALUE params);
@@ -1482,36 +1526,6 @@ pgconn_quote_identifier( VALUE self, VALUE str)
 }
 
 
-
-
-/*
- * call-seq:
- *    conn.client_encoding() -> str
- *
- * Returns the client encoding as a String.
- */
-VALUE
-pgconn_client_encoding( VALUE self)
-{
-    char *encoding = (char *) pg_encoding_to_char(
-                                PQclientEncoding( get_pgconn( self)));
-    return rb_tainted_str_new2( encoding);
-}
-
-/*
- * call-seq:
- *    conn.set_client_encoding( encoding)
- *
- * Sets the client encoding to the +encoding+ string.
- */
-VALUE
-pgconn_set_client_encoding( VALUE self, VALUE str)
-{
-    StringValue( str);
-    if ((PQsetClientEncoding( get_pgconn( self), RSTRING_PTR( str))) == -1)
-        rb_raise( rb_ePgError, "Invalid encoding name %s", str);
-    return Qnil;
-}
 
 
 char **
