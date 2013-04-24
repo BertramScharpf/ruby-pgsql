@@ -65,11 +65,16 @@ static VALUE pgconn_socket(  VALUE obj);
 static VALUE pgconn_trace(   VALUE obj, VALUE port);
 static VALUE pgconn_untrace( VALUE obj);
 
+static VALUE pgconn_on_notice( VALUE self);
+static void  notice_receiver( void *self, const PGresult *result);
+
+
 
 VALUE rb_cPgConn;
 
 static VALUE rb_ePgConnFailed;
 static VALUE rb_ePgConnInvalid;
+
 
 
 void
@@ -661,6 +666,60 @@ pgconn_untrace( VALUE self)
 
 
 
+/*
+ * call-seq:
+ *   conn.on_notice { |message| ... }
+ *
+ * This method yields a PG::Result::Error object in case a nonfatal exception
+ * was raised.
+ *
+ * Here's an example:
+ *
+ *   conn.exec <<-EOT
+ *     create or replace function noise() returns void as $$
+ *     begin
+ *       raise notice 'Hi!';
+ *     end;
+ *     $$ language plpgsql;
+ *   EOT
+ *   conn.on_notice { |e| puts e.inspect }
+ *   conn.exec "select noise();"
+ */
+VALUE
+pgconn_on_notice( VALUE self)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    if (PQsetNoticeReceiver( c->conn, NULL, NULL) != &notice_receiver) {
+        PQsetNoticeReceiver( c->conn, &notice_receiver, (void *) c);
+    }
+    c->notice = rb_block_given_p() ? rb_block_proc() : Qnil;
+    return self;
+}
+
+void
+notice_receiver( void *self, const PGresult *result)
+{
+    struct pgconn_data *c;
+
+    c = (struct pgconn_data *) self;
+    if (c->notice != Qnil) {
+        VALUE err;
+
+#if 0
+/* This crashes; maybe because PQclear will also be done by Postgres. */
+        err = pgreserror_new( (PGresult *) result, c);
+#else
+        err = pgconn_mkstring( c, PQresultErrorMessage( result));
+#endif
+        rb_proc_call( c->notice, rb_ary_new3( 1l, err));
+    }
+}
+
+
+
+
 /********************************************************************
  *
  * Document-class: Pg::Conn::Failed
@@ -744,12 +803,12 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "trace", pgconn_trace, 1);
     rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
 
+    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
+
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();
 
 #ifdef TODO_DONE
-
-    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
 #define TRANS_DEF( c) \
             rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
@@ -790,8 +849,6 @@ static ID id_on_notice;
 
 
 
-static void  notice_receiver( void *self, const PGresult *result);
-static VALUE pgconn_on_notice( VALUE self);
 
 
 
@@ -827,54 +884,7 @@ get_pgconn( VALUE obj)
     return c->conn;
 }
 
-void
-notice_receiver( void *self, const PGresult *result)
-{
-    struct pgconn_data *c;
-    VALUE block;
 
-    Data_Get_Struct( obj, struct pgconn_data, c);
-    if (c->notice != Qnil) {
-        VALUE err;
-
-        err = pgreserror_new( (PGresult *) result, c);
-        rb_proc_call( c->notice, rb_ary_new4( 1l, &err));
-        /* PQclear will be done by Postgres. */
-    }
-}
-
-/*
- * call-seq:
- *   conn.on_notice { |message| ... }
- *
- * This method yields a PG::Result::Error object in case a nonfatal exception
- * was raised.
- *
- * Here's an example:
- *
- *   conn.exec <<-EOT
- *     create or replace function noise() returns void as $$
- *     begin
- *       raise notice 'Hi!';
- *     end;
- *     $$ language plpgsql;
- *   EOT
- *   conn.on_notice { |e| puts e.inspect }
- *   conn.exec "select noise();"
- */
-VALUE
-pgconn_on_notice( VALUE self)
-{
-    PGconn *conn;
-
-    conn = get_pgconn( self);
-    if (PQsetNoticeReceiver( conn, NULL, NULL) != &notice_receiver)
-        PQsetNoticeReceiver( conn, &notice_receiver, (void *) self);
-    if (!id_on_notice)
-        id_on_notice = rb_intern( "@on_notice");
-    rb_ivar_set( self, id_on_notice, rb_block_proc());
-    return self;
-}
 
 
 
