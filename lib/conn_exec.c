@@ -412,8 +412,7 @@ pgconn_get_notify( VALUE self)
     ext = pgconn_mkstring( c, notify->extra);
     ret = rb_ary_new3( 3, rel, pid, ext);
     PQfreemem( notify);
-    return RTEST( rb_block_given_p()) ?
-        rb_ensure( rb_yield, ret, NULL, Qnil) : ret;
+    return RTEST( rb_block_given_p()) ? rb_yield( ret) : ret;
 }
 
 

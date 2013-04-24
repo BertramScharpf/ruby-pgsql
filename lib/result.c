@@ -438,7 +438,7 @@ pgresult_each( VALUE self)
     Data_Get_Struct( self, struct pgresult_data, r);
     row = Qnil;
     for (j = 0, m = PQntuples( r->res); m; j++, m--) {
-        row = pg_fetchrow( row, r, m);
+        row = pg_fetchrow( row, r, j);
         rb_yield( row);
     }
     return m ? INT2FIX( m) : Qnil;

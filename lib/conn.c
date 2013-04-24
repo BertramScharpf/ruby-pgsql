@@ -775,8 +775,6 @@ Init_pgsql_conn( void)
 #undef ERR_DEF
 
     id_on_notice   = 0;
-    id_command     = rb_intern( "command");
-    id_parameters  = rb_intern( "parameters");
 
 #endif
 }
@@ -785,11 +783,8 @@ Init_pgsql_conn( void)
 #ifdef TODO_DONE
 
 static ID id_on_notice;
-static id_command;
-static id_parameters;
 
 
-static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
 
 static void  notice_receiver( void *self, const PGresult *result);
 static VALUE pgconn_on_notice( VALUE self);

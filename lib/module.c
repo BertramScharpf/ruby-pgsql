@@ -45,8 +45,8 @@ Init_pgsql( void)
     rb_ePgError = rb_define_class_under( rb_mPg, "Error", rb_eStandardError);
 
     Init_pgsql_conn();
-#ifdef TODO_DONE
     Init_pgsql_result();
+#ifdef TODO_DONE
     Init_pgsql_row();
 #endif
 }
