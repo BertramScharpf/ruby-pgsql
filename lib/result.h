@@ -27,6 +27,10 @@ extern int pg_checkresult( PGresult *result, struct pgconn_data *conn);
 extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
 
 
+extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn);
+extern VALUE pgresult_clear( VALUE obj);
+
+
 
 extern void Init_pgsql_result( void);
 
@@ -36,8 +40,6 @@ extern void Init_pgsql_result( void);
 extern PGresult *get_pgresult( VALUE obj);
 
 
-extern VALUE pgresult_new( struct pgconn_data *conn, PGresult *ptr);
-extern VALUE pgresult_clear( VALUE obj);
 
 
 extern VALUE fetch_fields( PGresult *result);

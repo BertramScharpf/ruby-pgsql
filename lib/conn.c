@@ -704,10 +704,6 @@ Init_pgsql_conn( void)
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
-    rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
-    rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
-    rb_define_method( rb_cPgConn, "fetch", pgconn_fetch, 0);
-
     rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
     rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
     rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
@@ -766,11 +762,6 @@ static VALUE pgconn_on_notice( VALUE self);
 
 
 static PGresult *exec_sql_statement( int argc, VALUE *argv, VALUE self, int store);
-static VALUE yield_or_return_result( VALUE res);
-static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
-static VALUE clear_resultqueue( VALUE obj);
-static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_fetch( VALUE obj);
 
 static VALUE pgconn_query(         int argc, VALUE *argv, VALUE obj);
 static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
@@ -907,132 +898,6 @@ exec_sql_statement( int argc, VALUE *argv, VALUE self, int store)
     pg_checkresult( result, c);
     return result;
 }
-
-VALUE
-yield_or_return_result( VALUE result)
-{
-    return RTEST( rb_block_given_p()) ?
-        rb_ensure( rb_yield, result, pgresult_clear, result) : result;
-}
-
-/*
- * call-seq:
- *    conn.exec( sql, *bind_values)  -> result
- *
- * Sends SQL query request specified by +sql+ to the PostgreSQL.
- * Returns a Pg::Result instance.
- *
- * +bind_values+ represents values for the PostgreSQL bind parameters found in
- * the +sql+.  PostgreSQL bind parameters are presented as $1, $1, $2, etc.
- */
-VALUE
-pgconn_exec( int argc, VALUE *argv, VALUE self)
-{
-    struct pgconn_data *c;
-    VALUE res;
-
-    Data_Get_Struct( self, struct pgconn_data, c);
-    res = pgresult_new( c, exec_sql_statement( argc, argv, self, 0));
-    return yield_or_return_result( res);
-}
-
-
-VALUE
-clear_resultqueue( VALUE self)
-{
-    PGconn *conn;
-    PGresult *result;
-
-    conn = get_pgconn( self);
-    while ((result = PQgetResult( conn)) != NULL)
-        PQclear( result);
-    pgconn_cmd_clear( self);
-    return Qnil;
-}
-
-/*
- * call-seq:
- *    conn.send( sql, *bind_values)   -> nil
- *
- * Sends an asynchronous SQL query request specified by +sql+ to the
- * PostgreSQL server.
- *
- * Use Pg::Conn#fetch to fetch the results after you waited for data.
- *
- *   Pg::Conn.connect do |conn|
- *     conn.send "select pg_sleep(3), * from t;" do
- *       ins = [ conn.socket]
- *       loop do
- *         r = IO.select ins, nil, nil, 0.5
- *         break if r
- *         puts Time.now
- *       end
- *       res = conn.fetch
- *       res.each { |w| puts w.inspect }
- *     end
- *   end
- */
-VALUE
-pgconn_send( int argc, VALUE *argv, VALUE self)
-{
-    PGconn *conn;
-    int res;
-    VALUE command, params;
-    int len;
-
-    rb_scan_args( argc, argv, "1*", &command, &params);
-    StringValue( command);
-    len = RARRAY_LEN( params);
-    conn = get_pgconn( self);
-    if (len <= 0)
-        res = PQsendQuery( conn, RSTRING_PTR( command));
-    else {
-        char **v;
-
-        v = params_to_strings( self, params);
-        res = PQsendQueryParams( conn, RSTRING_PTR( command), len,
-                                 NULL, (const char **) v, NULL, NULL, 0);
-        free_strings( v, len);
-    }
-    if (res <= 0)
-        pg_raise_pgconn( conn);
-    pgconn_cmd_set( self, command, params);
-    return rb_ensure( rb_yield, Qnil, clear_resultqueue, self);
-}
-
-/*
- * call-seq:
- *    conn.fetch()                   -> result or nil
- *    conn.fetch() { |result| ... }  -> obj
- *
- * Fetches the results of the previous Pg::Conn#send call.
- * See there for an example.
- *
- * The result will be +nil+ if there are no more results.
- */
-VALUE
-pgconn_fetch( VALUE self)
-{
-    struct pgconn_data *c;
-    PGresult *result;
-    VALUE res;
-
-    Data_Get_Struct( self, struct pgconn_data, c);
-    if (PQconsumeInput( c->conn) == 0)
-        pg_raise_pgconn( c->conn);
-    if (PQisBusy( c->conn) > 0)
-        return Qnil;
-    result = PQgetResult( c->conn);
-    if (result == NULL)
-        res = Qnil;
-    else {
-        pg_checkresult( result, c);
-        res = pgresult_new( c, result);
-    }
-    return yield_or_return_result( res);
-}
-
-
 
 /*
  * call-seq:

@@ -23,6 +23,12 @@ static VALUE pgreserror_hint(    VALUE self);
 static VALUE pgreserror_diag(    VALUE self, VALUE field);
 
 
+static void pgresult_free( struct pgresult_data *ptr);
+extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn);
+
+extern VALUE pgresult_clear( VALUE self);
+
+
 
 static VALUE rb_cBigDecimal;
 
@@ -80,7 +86,7 @@ pgreserror_new( PGresult *result, struct pgconn_data *conn)
     VALUE rse, msg;
 
     rse = Data_Make_Struct( rb_ePgResError, struct pgreserr_data, &pgreserr_mark, &pgreserr_free, r);
-    r->res = result;
+    r->res     = result;
     r->conn    = conn;
     r->command = conn->command;  conn->command = Qnil;
     r->params  = conn->params;   conn->params  = Qnil;
@@ -229,6 +235,48 @@ pgreserror_diag( VALUE self, VALUE field)
 
 
 
+void
+pgresult_free( struct pgresult_data *ptr)
+{
+    if (ptr->res != NULL)
+        PQclear( ptr->res);
+    free( ptr);
+}
+
+VALUE
+pgresult_new( PGresult *result, struct pgconn_data *conn)
+{
+    struct pgresult_data *r;
+    VALUE rse;
+
+    rse = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
+    r->res  = result;
+    r->conn = conn;
+    return rse;
+}
+
+/*
+ * call-seq:
+ *    res.clear()
+ *
+ * Clears the Pg::Result object as the result of the query.
+ */
+VALUE
+pgresult_clear( VALUE self)
+{
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    if (r->res != NULL) {
+      PQclear( r->res);
+      r->res = NULL;
+    }
+    return Qnil;
+}
+
+
+
+
 
 
 
@@ -289,14 +337,11 @@ Init_pgsql_result( void)
 #undef PGD_DEF
 
 
+    rb_undef_method( CLASS_OF( rb_cPgResult), "new");
+    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
+    rb_define_alias( rb_cPgResult, "close", "clear");
 
 #ifdef TODO_DONE
-#if 0
-    rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
-#else
-    rb_undef_method( CLASS_OF( rb_cPgResult), "new");
-#endif
-    rb_include_module( rb_cPgResult, rb_mEnumerable);
 
 #define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
     RESC_DEF( EMPTY_QUERY);
@@ -313,6 +358,7 @@ Init_pgsql_result( void)
 
     rb_define_singleton_method( rb_cPgResult, "translate_results=", pgresult_s_translate_results_set, 1);
 
+    rb_include_module( rb_cPgResult, rb_mEnumerable);
     rb_define_alias( rb_cPgResult, "result", "entries");
     rb_define_alias( rb_cPgResult, "rows", "entries");
     rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
@@ -332,8 +378,6 @@ Init_pgsql_result( void)
     rb_define_method( rb_cPgResult, "cmdtuples", pgresult_cmdtuples, 0);
     rb_define_method( rb_cPgResult, "cmdstatus", pgresult_cmdstatus, 0);
     rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
-    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
-    rb_define_alias( rb_cPgResult, "close", "clear");
 
     id_parse    = rb_intern( "parse");
     id_index    = rb_intern( "index");
@@ -370,7 +414,6 @@ static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
 
 static void  free_pgresult( struct pgresult_data *ptr);
-static VALUE pgresult_alloc( VALUE cls);
 static VALUE pgresult_status( VALUE obj);
 static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
 
@@ -426,40 +469,6 @@ get_field_number( PGresult *result, VALUE index)
 }
 
 
-
-
-
-void
-free_pgresult( struct pgresult_data *ptr)
-{
-    PQclear( ptr->res);
-    free( ptr);
-}
-
-VALUE
-pgresult_alloc( VALUE cls)
-{
-    struct pgresult_data *r;
-
-    return Data_Make_Struct( cls, struct pgresult_data, 0, &free_pgresult, r);
-    r->res  = NULL;
-    r->conn = NULL;
-}
-
-
-VALUE
-pgresult_new( struct pgconn_data *conn, PGresult *result)
-{
-    VALUE r;
-
-    r = pgresult_alloc( rb_cPgResult);
-    DATA_PTR( r)->res  = result;
-    DATA_PTR( r)->conn = conn;
-#if 0
-    rb_obj_call_init( r, 0, NULL);
-#endif
-    return r;
-}
 
 /*
  * call-seq:
@@ -928,23 +937,5 @@ pgresult_oid( VALUE obj)
     return n == InvalidOid ? Qnil : INT2NUM( n);
 }
 
-/*
- * call-seq:
- *    res.clear()
- *
- * Clears the Pg::Result object as the result of the query.
- */
-VALUE
-pgresult_clear( VALUE obj)
-{
-    if (DATA_PTR( obj) != NULL) {
-      PQclear( get_pgresult( obj));
-      DATA_PTR( obj) = NULL;
-    }
-    return Qnil;
-}
-
-
 
 #endif
-

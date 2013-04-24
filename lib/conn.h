@@ -28,9 +28,5 @@ extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 extern void Init_pgsql_conn( void);
 
 
-#ifdef TODO_DONE
-extern void pg_raise_pgconn( PGconn *conn);
-#endif
-
 #endif
 
