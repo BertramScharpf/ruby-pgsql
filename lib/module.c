@@ -5,10 +5,6 @@
 #include "module.h"
 
 #include "conn.h"
-#ifdef TODO_DONE
-#include "result.h"
-#include "row.h"
-#endif
 
 
 #define PGSQL_VERSION "1.0"
@@ -46,8 +42,5 @@ Init_pgsql( void)
 
     Init_pgsql_conn();
     Init_pgsql_result();
-#ifdef TODO_DONE
-    Init_pgsql_row();
-#endif
 }
 

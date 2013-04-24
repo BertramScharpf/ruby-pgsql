@@ -490,7 +490,7 @@ pgresult_fieldnum( VALUE self, VALUE name)
 
     StringValue( name);
     Data_Get_Struct( self, struct pgresult_data, r);
-    n = PQfnumber( r->res, RSTRING_PTR( name));
+    n = PQfnumber( r->res, pgconn_destring( r->conn, name, NULL));
     if (n == -1)
         rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
     return INT2FIX( n);

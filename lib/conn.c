@@ -13,12 +13,6 @@
 #ifdef TODO_DONE
 #include "result.h"
 
-#ifdef HAVE_FUNC_RB_ERRINFO
-    #define RB_ERRINFO (rb_errinfo())
-#else
-    #define RB_ERRINFO ruby_errinfo
-#endif
-
 #ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
     #include <libpq/libpq-fs.h>
 #endif
@@ -32,7 +26,9 @@ static void  pgconn_mark( struct pgconn_data *ptr);
 static void  pgconn_free( struct pgconn_data *ptr);
 extern void  pgconn_clear( struct pgconn_data *c);
 extern struct pgconn_data *get_pgconn( VALUE obj);
-static void  pgconn_encode_out( struct pgconn_data *ptr, VALUE str);
+static VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str);
+extern const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len);
+static void  pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str);
 extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 extern VALUE pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len);
 static VALUE pgconn_alloc( VALUE cls);
@@ -119,8 +115,29 @@ get_pgconn( VALUE obj)
     return c;
 }
 
+
+VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str)
+{
+    str = rb_obj_as_string( str);
+#ifdef TODO_RUBY19_ENCODING
+    str = rb_encode_change_to( str, ptr->external);
+#endif
+    return str;
+}
+
+const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len)
+{
+    VALUE s;
+
+    s = pgconn_encode_in4out( ptr, str);
+    if (len != NULL)
+        *len = RSTRING_LEN( s);
+    return RSTRING_PTR( s);
+}
+
+
 void
-pgconn_encode_out( struct pgconn_data *ptr, VALUE str)
+pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str)
 {
 #ifdef TODO_RUBY19_ENCODING
     rb_encode_force_to( str, ptr->external);
@@ -137,7 +154,7 @@ pgconn_mkstring( struct pgconn_data *ptr, const char *str)
 
     if (str) {
         r = rb_tainted_str_new2( str);
-        pgconn_encode_out( ptr, r);
+        pgconn_encode_out4in( ptr, r);
     } else
         r = Qnil;
     return r;
@@ -150,7 +167,7 @@ pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len)
 
     if (str) {
         r = rb_tainted_str_new( str, len);
-        pgconn_encode_out( ptr, r);
+        pgconn_encode_out4in( ptr, r);
     } else
         r = Qnil;
     return r;
@@ -246,7 +263,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     VALUE str, params;
     int l;
     const char **keywords, **values;
-    const char **ptrs[ 2];
+    const char **ptrs[ 3];
     struct pgconn_data *c;
 
     if (rb_scan_args( argc, argv, "02", &str, &params) < 2)
@@ -269,8 +286,9 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     values   = (const char **) ALLOCA_N( char *, l);
     ptrs[ 0] = keywords;
     ptrs[ 1] = values;
-    st_foreach( RHASH_TBL( params), set_connect_params, (st_data_t) ptrs);
-    *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
+    ptrs[ 2] = (const char **) c;
+    st_foreach( RHASH_TBL( params), &set_connect_params, (st_data_t) ptrs);
+    ptrs[ 0] = ptrs[ 1] = ptrs[ 2] = NULL;
 
     Data_Get_Struct( self, struct pgconn_data, c);
     c->conn = PQconnectdbParams( keywords, values, 0);
@@ -289,27 +307,15 @@ int
 set_connect_params( st_data_t key, st_data_t val, st_data_t args)
 {
     const char ***ptrs = (const char ***)args;
+    struct pgconn_data *c;
     VALUE k, v;
 
     k = (VALUE) key;
     v = (VALUE) val;
+    c = (struct pgconn_data *) ptrs[ 2];
     if (!NIL_P( v)) {
-        switch(TYPE( k)) {
-          case T_STRING:
-            *(ptrs[ 0]) = StringValueCStr( k);
-            break;
-          default:
-            *(ptrs[ 0]) = RSTRING_PTR( rb_obj_as_string( k));
-            break;
-        }
-        switch(TYPE( v)) {
-          case T_STRING:
-            *(ptrs[ 1]) = StringValueCStr( v);
-            break;
-          default:
-            *(ptrs[ 1]) = RSTRING_PTR( rb_obj_as_string( v));
-            break;
-        }
+        *(ptrs[ 0]) = pgconn_destring( c, rb_obj_as_string( k), NULL);
+        *(ptrs[ 1]) = pgconn_destring( c, rb_obj_as_string( v), NULL);
         ptrs[ 0]++;
         ptrs[ 1]++;
     }
@@ -720,6 +726,7 @@ notice_receiver( void *self, const PGresult *result)
 
 
 
+
 /********************************************************************
  *
  * Document-class: Pg::Conn::Failed
@@ -805,24 +812,14 @@ Init_pgsql_conn( void)
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
+
+
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();
 
-#ifdef TODO_DONE
 
-#define TRANS_DEF( c) \
-            rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
-    TRANS_DEF( IDLE);
-    TRANS_DEF( ACTIVE);
-    TRANS_DEF( INTRANS);
-    TRANS_DEF( INERROR);
-    TRANS_DEF( UNKNOWN);
-#undef TRANS_DEF
-    rb_define_method( rb_cPgConn, "transaction", pgconn_transaction, -1);
-    rb_define_method( rb_cPgConn, "subtransaction", pgconn_subtransaction, -1);
-    rb_define_alias( rb_cPgConn, "savepoint", "subtransaction");
-    rb_define_method( rb_cPgConn, "transaction_status",
-                                                 pgconn_transaction_status, 0);
+
+#ifdef TODO_DONE
 
     rb_define_method( rb_cPgConn, "copy_stdin", pgconn_copy_stdin, -1);
     rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
@@ -833,32 +830,11 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
     rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
 
-#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
-    rb_ePgTransError = ERR_DEF( "InTransaction");
-#undef ERR_DEF
-
-    id_on_notice   = 0;
-
 #endif
 }
 
 
 #ifdef TODO_DONE
-
-static ID id_on_notice;
-
-
-
-
-
-
-static VALUE rescue_transaction( VALUE self);
-static VALUE yield_transaction( VALUE self);
-static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
-static VALUE rescue_subtransaction( VALUE ary);
-static VALUE yield_subtransaction( VALUE ary);
-static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_transaction_status( VALUE self);
 
 static VALUE put_end( VALUE conn);
 static VALUE pgconn_copy_stdin( int argc, VALUE *argv, VALUE self);
@@ -869,7 +845,6 @@ static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_each_line( VALUE self);
 
 
-static VALUE rb_ePgTransError;
 
 
 
@@ -890,140 +865,6 @@ get_pgconn( VALUE obj)
 
 
 
-
-
-
-VALUE
-rescue_transaction( VALUE self)
-{
-    pg_pqexec( get_pgconn( self), rb_str_new2( "rollback;"));
-    rb_exc_raise( RB_ERRINFO);
-    return Qnil;
-}
-
-VALUE
-yield_transaction( VALUE self)
-{
-    VALUE r;
-
-    r = rb_yield( self);
-    pg_pqexec( get_pgconn( self), rb_str_new2( "commit;"));
-    return r;
-}
-
-/*
- * call-seq:
- *    conn.transaction( ser = nil, ro = nil) { |conn| ... }
- *
- * Open and close a transaction block.  The isolation level will be
- * 'serializable' if +ser+ is true, else 'repeatable read'.
- * +ro+ means 'read only'.
- *
- * (In C++ terms, +ro+ is const, and +ser+ is not volatile.)
- *
- */
-VALUE
-pgconn_transaction( int argc, VALUE *argv, VALUE self)
-{
-    VALUE ser, ro;
-    VALUE cmd;
-    int p;
-    PGconn *conn;
-
-    rb_scan_args( argc, argv, "02", &ser, &ro);
-    cmd = rb_str_buf_new2( "begin");
-    p = 0;
-    if (!NIL_P( ser)) {
-        rb_str_buf_cat2( cmd, " isolation level ");
-        rb_str_buf_cat2( cmd, RTEST(ser) ? "serializable" : "read committed");
-        p++;
-    }
-    if (!NIL_P( ro)) {
-        if (p) rb_str_buf_cat2( cmd, ",");
-        rb_str_buf_cat2( cmd, " read ");
-        rb_str_buf_cat2( cmd, (RTEST(ro)  ? "only" : "write"));
-    }
-    rb_str_buf_cat2( cmd, ";");
-
-    conn = get_pgconn( self);
-    if (PQtransactionStatus( conn) > PQTRANS_IDLE)
-        rb_raise( rb_ePgTransError,
-            "Nested transaction block. Use Conn#subtransaction.");
-    pg_pqexec( conn, cmd);
-    return rb_rescue( yield_transaction, self, rescue_transaction, self);
-}
-
-
-VALUE
-rescue_subtransaction( VALUE ary)
-{
-    VALUE cmd;
-
-    cmd = rb_str_buf_new2( "rollback to savepoint ");
-    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
-    rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), cmd);
-
-    rb_exc_raise( RB_ERRINFO);
-    return Qnil;
-}
-
-VALUE
-yield_subtransaction( VALUE ary)
-{
-    VALUE r, cmd;
-
-    r = rb_yield( ary);
-
-    cmd = rb_str_buf_new2( "release savepoint ");
-    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
-    rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( rb_ary_entry( ary, 0)), cmd);
-
-    return r;
-}
-
-/*
- * call-seq:
- *    conn.subtransaction( nam, *args) { |conn,sp| ... }
- *
- * Open and close a transaction savepoint.  The savepoints name +nam+ may
- * contain % directives that will be expanded by +args+.
- */
-VALUE
-pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
-{
-    VALUE sp, par, cmd, ya;
-
-    if (rb_scan_args( argc, argv, "1*", &sp, &par) > 1)
-        sp = rb_str_format(RARRAY_LEN(par), RARRAY_PTR(par), sp);
-
-    cmd = rb_str_buf_new2( "savepoint ");
-    rb_str_buf_append( cmd, sp);
-    rb_str_buf_cat2( cmd, ";");
-    pg_pqexec( get_pgconn( self), cmd);
-
-    ya = rb_ary_new3( 2, self, sp);
-    return rb_rescue( yield_subtransaction, ya, rescue_subtransaction, ya);
-}
-
-/*
- * call-seq:
- *    conn.transaction_status()  ->  int
- *
- * returns one of the following statuses:
- *
- *   PQTRANS_IDLE    = 0 (connection idle)
- *   PQTRANS_ACTIVE  = 1 (command in progress)
- *   PQTRANS_INTRANS = 2 (idle, within transaction block)
- *   PQTRANS_INERROR = 3 (idle, within failed transaction)
- *   PQTRANS_UNKNOWN = 4 (cannot determine status)
- */
-VALUE
-pgconn_transaction_status( VALUE self)
-{
-    return INT2FIX( PQtransactionStatus( get_pgconn( self)));
-}
 
 
 
