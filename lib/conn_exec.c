@@ -23,9 +23,15 @@ static VALUE pgconn_fetch( VALUE obj);
 static VALUE yield_or_return_result( VALUE res);
 static VALUE clear_resultqueue( VALUE self);
 
+static VALUE pgconn_query(         int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_get_notify( VALUE self);
+
+
 
 static VALUE rb_ePgConnExec;
-
 
 
 void
@@ -42,6 +48,7 @@ pg_statement_exec( VALUE conn, VALUE cmd, VALUE par)
     PGresult *result;
 
     Data_Get_Struct( conn, struct pgconn_data, c);
+    pg_check_conninvalid( c);
     if (NIL_P( par))
         result = PQexec( c->conn, RSTRING_PTR( cmd));
     else {
@@ -69,6 +76,7 @@ pg_statement_send( VALUE conn, VALUE cmd, VALUE par)
     int res;
 
     Data_Get_Struct( conn, struct pgconn_data, c);
+    pg_check_conninvalid( c);
     if (NIL_P( par))
         res = PQsendQuery( c->conn, RSTRING_PTR( cmd));
     else {
@@ -211,6 +219,7 @@ pgconn_fetch( VALUE self)
     VALUE res;
 
     Data_Get_Struct( self, struct pgconn_data, c);
+    pg_check_conninvalid( c);
     if (PQconsumeInput( c->conn) == 0)
         pg_raise_connexec( c);
     if (PQisBusy( c->conn) > 0)
@@ -231,8 +240,7 @@ yield_or_return_result( VALUE result)
     struct pgresult_data *r;
 
     Data_Get_Struct( result, struct pgresult_data, r);
-    r->conn->command = Qnil;
-    r->conn->params  = Qnil;
+    pgconn_clear( r->conn);
     return RTEST( rb_block_given_p()) ?
         rb_ensure( rb_yield, result, pgresult_clear, result) : result;
 }
@@ -246,11 +254,167 @@ clear_resultqueue( VALUE self)
     Data_Get_Struct( self, struct pgconn_data, c);
     while ((result = PQgetResult( c->conn)) != NULL)
         PQclear( result);
-    c->command = Qnil;
-    c->params  = Qnil;
+    pgconn_clear( c);
     return Qnil;
 }
 
+
+
+
+/*
+ * call-seq:
+ *    conn.query( sql, *bind_values)    -> rows
+ *    conn.query( sql, *bind_values) { |row| ... }   -> int or nil
+ *
+ * This is almost the same as Pg::Conn#exec except that it will yield or return
+ * rows skipping the result object.
+ *
+ * If given a block, the nonzero number of rows will be returned or nil
+ * otherwise.
+ */
+VALUE
+pgconn_query( int argc, VALUE *argv, VALUE self)
+{
+    struct pgconn_data *c;
+    VALUE cmd, par;
+    PGresult *result;
+
+    pg_parse_parameters( argc, argv, &cmd, &par);
+    result = pg_statement_exec( self, cmd, par);
+    Data_Get_Struct( self, struct pgconn_data, c);
+    pgconn_clear( c);
+    if (rb_block_given_p()) {
+        VALUE res;
+
+        res = pgresult_new( result, c);
+        return rb_ensure( pgresult_each, res, pgresult_clear, res);
+    } else {
+        struct pgresult_data r;
+        int m, j;
+        VALUE ret;
+
+        pgresult_init( &r, result, c);
+        m = PQntuples( result);
+        ret = rb_ary_new2( m);
+        for (j = 0; m; ++j, --m)
+            rb_ary_store( ret, j, pg_fetchrow( Qnil, &r, j));
+        PQclear( result);
+        return ret;
+    }
+}
+
+/*
+ * call-seq:
+ *   conn.select_one( query, *bind_values)
+ *
+ * Return the first row of the query results.
+ * Equivalent to <code>conn.query( query, *bind_values).first</code>.
+ */
+VALUE
+pgconn_select_one( int argc, VALUE *argv, VALUE self)
+{
+    struct pgconn_data *c;
+    VALUE cmd, par;
+    struct pgresult_data r;
+    VALUE row;
+
+    pg_parse_parameters( argc, argv, &cmd, &par);
+    Data_Get_Struct( self, struct pgconn_data, c);
+    pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
+    pgconn_clear( c);
+    row = PQntuples( r.res) ? pg_fetchrow( Qnil, &r, 0)
+                            : Qnil;
+    PQclear( r.res);
+    return row;
+}
+
+/*
+ * call-seq:
+ *   conn.select_value( query, *bind_values)
+ *
+ * Return the first value of the first row of the query results.
+ * Equivalent to conn.query( query, *bind_values).first.first
+ */
+VALUE
+pgconn_select_value( int argc, VALUE *argv, VALUE self)
+{
+    struct pgconn_data *c;
+    VALUE cmd, par;
+    struct pgresult_data r;
+    VALUE ret;
+
+    pg_parse_parameters( argc, argv, &cmd, &par);
+    Data_Get_Struct( self, struct pgconn_data, c);
+    pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
+    pgconn_clear( c);
+    ret = PQntuples( r.res) ? pg_fetchresult( &r, 0, 0)
+                            : Qnil;
+    PQclear( r.res);
+    return ret;
+}
+
+/*
+ * call-seq:
+ *   conn.select_values( query, *bind_values)
+ *
+ * Equivalent to conn.query( query, *bind_values).flatten
+ */
+VALUE
+pgconn_select_values( int argc, VALUE *argv, VALUE self)
+{
+    struct pgconn_data *c;
+    VALUE cmd, par;
+    struct pgresult_data r;
+    int n, m, n_;
+    int i, j, k;
+    VALUE ret;
+
+    pg_parse_parameters( argc, argv, &cmd, &par);
+    Data_Get_Struct( self, struct pgconn_data, c);
+    pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
+    pgconn_clear( c);
+
+    m = PQntuples( r.res), n = PQnfields( r.res);
+    ret = rb_ary_new2( m * n);
+    n_ = n;
+    for (k = 0, j = 0; m; ++j, --m) {
+        for (i = 0; n; ++i, --n, ++k)
+            rb_ary_store( ret, k, pg_fetchresult( &r, j, i));
+        n = n_;
+    }
+    PQclear( r.res);
+    return ret;
+}
+
+/*
+ * call-seq:
+ *    conn.get_notify()  -> ary or nil
+ *    conn.get_notify() { |rel,pid,msg| .... } -> obj
+ *
+ * Returns a notifier. If there is no unprocessed notifier, it returns +nil+.
+ */
+VALUE
+pgconn_get_notify( VALUE self)
+{
+    struct pgconn_data *c;
+    PGnotify *notify;
+    VALUE rel, pid, ext;
+    VALUE ret;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    if (PQconsumeInput( c->conn) == 0)
+        pg_raise_connexec( c);
+    notify = PQnotifies( c->conn);
+    if (notify == NULL)
+        return Qnil;
+    rel = pgconn_mkstring( c, notify->relname);
+    pid = INT2FIX( notify->be_pid),
+    ext = pgconn_mkstring( c, notify->extra);
+    ret = rb_ary_new3( 3, rel, pid, ext);
+    PQfreemem( notify);
+    return RTEST( rb_block_given_p()) ?
+        rb_ensure( rb_yield, ret, NULL, Qnil) : ret;
+}
 
 
 
@@ -267,6 +431,12 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
     rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
     rb_define_method( rb_cPgConn, "fetch", pgconn_fetch, 0);
+
+    rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
+    rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
+    rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
+    rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
+    rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
 
 }
 

@@ -16,8 +16,6 @@ extern VALUE rb_cCurrency;
 extern VALUE pg_currency_class( void);
 
 
-extern VALUE string_unescape_bytea( char *escaped);
-
 extern VALUE pgconn_stringize( VALUE self, VALUE obj);
 extern VALUE pgconn_stringize_line( VALUE self, VALUE ary);
 

@@ -12,6 +12,8 @@
 struct pgresult_data {
     PGresult           *res;
     struct pgconn_data *conn;
+    VALUE               fields;
+    VALUE               indices;
 };
 
 struct pgreserr_data {
@@ -24,11 +26,15 @@ struct pgreserr_data {
 
 
 extern int pg_checkresult( PGresult *result, struct pgconn_data *conn);
+extern void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
 extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
 
 
 extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn);
-extern VALUE pgresult_clear( VALUE obj);
+extern VALUE pgresult_clear( VALUE self);
+extern VALUE pgresult_each( VALUE self);
+extern VALUE pg_fetchrow( VALUE ary, struct pgresult_data *r, int num);
+extern VALUE pg_fetchresult( struct pgresult_data *r, int row, int col);
 
 
 
@@ -39,14 +45,7 @@ extern void Init_pgsql_result( void);
 #ifdef TODO_DONE
 extern PGresult *get_pgresult( VALUE obj);
 
-
-
-
-extern VALUE fetch_fields( PGresult *result);
 extern VALUE field_index( VALUE fields, VALUE name);
-extern VALUE fetch_pgresult( PGresult *result, int row, int column);
-extern VALUE fetch_pgrow( PGresult *result, int row_num, VALUE fields);
-extern VALUE pgresult_each( VALUE self);
 #endif
 
 

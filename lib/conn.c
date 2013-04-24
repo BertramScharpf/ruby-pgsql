@@ -32,10 +32,16 @@
 
 #endif
 
+extern void pg_check_conninvalid( struct pgconn_data *c);
+
+
 static void  pgconn_mark( struct pgconn_data *ptr);
 static void  pgconn_free( struct pgconn_data *ptr);
+extern void  pgconn_clear( struct pgconn_data *c);
 extern struct pgconn_data *get_pgconn( VALUE obj);
+static void  pgconn_encode_out( struct pgconn_data *ptr, VALUE str);
 extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
+extern VALUE pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len);
 static VALUE pgconn_alloc( VALUE cls);
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
 static VALUE pgconn_s_parse( VALUE cls, VALUE str);
@@ -74,6 +80,15 @@ static VALUE rb_ePgConnInvalid;
 
 
 void
+pg_check_conninvalid( struct pgconn_data *c)
+{
+    if (c->conn == NULL)
+        rb_raise( rb_ePgConnInvalid, "Invalid connection (probably closed).");
+}
+
+
+
+void
 pgconn_mark( struct pgconn_data *ptr)
 {
     rb_gc_mark( ptr->command);
@@ -89,16 +104,33 @@ pgconn_free( struct pgconn_data *ptr)
     free( ptr);
 }
 
+void
+pgconn_clear( struct pgconn_data *c)
+{
+    c->command = Qnil;
+    c->params  = Qnil;
+}
+
 struct pgconn_data *
 get_pgconn( VALUE obj)
 {
     struct pgconn_data *c;
 
     Data_Get_Struct( obj, struct pgconn_data, c);
-    if (c->conn == NULL)
-        rb_raise( rb_ePgConnInvalid, "Invalid connection (probably closed).");
+    pg_check_conninvalid( c);
     return c;
 }
+
+void
+pgconn_encode_out( struct pgconn_data *ptr, VALUE str)
+{
+#ifdef TODO_RUBY19_ENCODING
+    rb_encode_force_to( str, ptr->external);
+    if (ptr->internal != NULL)
+        rb_encode_change_to( str, ptr->internal);
+#endif
+}
+
 
 VALUE
 pgconn_mkstring( struct pgconn_data *ptr, const char *str)
@@ -107,9 +139,20 @@ pgconn_mkstring( struct pgconn_data *ptr, const char *str)
 
     if (str) {
         r = rb_tainted_str_new2( str);
-#ifdef TODO_RUBY19_ENCODING
-        rb_encode_it( str, ptr->external);
-#endif
+        pgconn_encode_out( ptr, r);
+    } else
+        r = Qnil;
+    return r;
+}
+
+VALUE
+pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len)
+{
+    VALUE r;
+
+    if (str) {
+        r = rb_tainted_str_new( str, len);
+        pgconn_encode_out( ptr, r);
     } else
         r = Qnil;
     return r;
@@ -411,7 +454,7 @@ pgconn_set_client_encoding( VALUE self, VALUE str)
 VALUE
 pgconn_protocol_version( VALUE obj)
 {
-    return INT2NUM( PQprotocolVersion( get_pgconn( obj)->conn));
+    return INT2FIX( PQprotocolVersion( get_pgconn( obj)->conn));
 }
 
 /*
@@ -427,7 +470,7 @@ pgconn_protocol_version( VALUE obj)
 VALUE
 pgconn_server_version( VALUE obj)
 {
-    return INT2NUM( PQserverVersion( get_pgconn( obj)->conn));
+    return INT2FIX( PQserverVersion( get_pgconn( obj)->conn));
 }
 
 
@@ -492,7 +535,7 @@ VALUE
 pgconn_port( VALUE obj)
 {
     char* port = PQport( get_pgconn( obj)->conn);
-    return port == NULL ? Qnil : INT2NUM( atol( port));
+    return port == NULL ? Qnil : INT2FIX( atol( port));
 }
 
 /*
@@ -538,7 +581,7 @@ pgconn_user( VALUE obj)
 VALUE
 pgconn_status( VALUE obj)
 {
-    return INT2NUM( PQstatus( get_pgconn( obj)->conn));
+    return INT2FIX( PQstatus( get_pgconn( obj)->conn));
 }
 
 /*
@@ -576,7 +619,7 @@ pgconn_socket( VALUE obj)
         id_new = rb_intern( "new");
 
     fd = PQsocket( get_pgconn( obj)->conn);
-    return rb_funcall( rb_cIO, id_new, 1, INT2NUM( fd));
+    return rb_funcall( rb_cIO, id_new, 1, INT2FIX( fd));
 }
 
 
@@ -704,12 +747,6 @@ Init_pgsql_conn( void)
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
-    rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
-    rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
-    rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
-    rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
-    rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
-
 #define TRANS_DEF( c) \
             rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
     TRANS_DEF( IDLE);
@@ -759,16 +796,6 @@ static VALUE pgconn_on_notice( VALUE self);
 
 
 
-
-
-static PGresult *exec_sql_statement( int argc, VALUE *argv, VALUE self, int store);
-
-static VALUE pgconn_query(         int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_get_notify( VALUE self);
-
 static VALUE rescue_transaction( VALUE self);
 static VALUE yield_transaction( VALUE self);
 static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
@@ -788,19 +815,6 @@ static VALUE pgconn_each_line( VALUE self);
 
 static VALUE rb_ePgTransError;
 
-
-
-PGresult *
-pg_pqexec( PGconn *conn, VALUE cmd)
-{
-    PGresult *result;
-
-    result = PQexec( conn, RSTRING_PTR( cmd));
-    if (result == NULL)
-        pg_raise_pgconn( conn);
-    pg_checkresult( result, c);
-    return result;
-}
 
 
 PGconn *
@@ -866,168 +880,6 @@ pgconn_on_notice( VALUE self)
 
 
 
-
-
-
-PGresult *
-exec_sql_statement( int argc, VALUE *argv, VALUE self, int store)
-{
-    PGconn *conn;
-    PGresult *result;
-    VALUE command, params;
-    int len;
-
-    conn = get_pgconn( self);
-    rb_scan_args( argc, argv, "1*", &command, &params);
-    StringValue( command);
-    len = RARRAY_LEN( params);
-    if (len <= 0)
-        result = PQexec( conn, RSTRING_PTR( command));
-    else {
-        char **v;
-
-        v = params_to_strings( self, params);
-        result = PQexecParams( conn, RSTRING_PTR( command), len,
-                               NULL, (const char **) v, NULL, NULL, 0);
-        free_strings( v, len);
-    }
-    if (result == NULL)
-        pg_raise_pgconn( conn);
-    if (store)
-        pgconn_cmd_set( self, command, params);
-    pg_checkresult( result, c);
-    return result;
-}
-
-/*
- * call-seq:
- *    conn.query( sql, *bind_values)    -> rows
- *    conn.query( sql, *bind_values) { |row| ... }   -> int or nil
- *
- * This is almost the same as Pg::Conn#exec except that it will yield or return
- * rows skipping the result object.
- *
- * If given a block, the nonzero number of rows will be returned or nil
- * otherwise.
- */
-VALUE
-pgconn_query( int argc, VALUE *argv, VALUE self)
-{
-    PGresult *result;
-
-    result = exec_sql_statement( argc, argv, self, 0);
-    if (rb_block_given_p()) {
-        struct pgconn_data *c;
-        VALUE res;
-
-        Data_Get_Struct( self, struct pgconn_data, c);
-        res = pgresult_new( c, result);
-        return rb_ensure( pgresult_each, res, pgresult_clear, res);
-    } else {
-        VALUE fields;
-        int n, i;
-        VALUE ret;
-
-        fields = fetch_fields( result);
-        n = PQntuples( result);
-        ret = rb_ary_new2( n);
-        for (i = 0; n; ++i, --n)
-            rb_ary_store( ret, i, fetch_pgrow( result, i, fields));
-        PQclear( result);
-        return ret;
-    }
-}
-
-/*
- * call-seq:
- *   conn.select_one( query, *bind_values)
- *
- * Return the first row of the query results.
- * Equivalent to <code>conn.query( query, *bind_values).first</code>.
- */
-VALUE
-pgconn_select_one( int argc, VALUE *argv, VALUE self)
-{
-    VALUE row;
-    PGresult *result;
-
-    result = exec_sql_statement( argc, argv, self, 0);
-    row = PQntuples( result) ? fetch_pgrow( result, 0, fetch_fields( result))
-                             : Qnil;
-    PQclear( result);
-    return row;
-}
-
-/*
- * call-seq:
- *   conn.select_value( query, *bind_values)
- *
- * Return the first value of the first row of the query results.
- * Equivalent to conn.query( query, *bind_values).first.first
- */
-VALUE
-pgconn_select_value( int argc, VALUE *argv, VALUE self)
-{
-    PGresult *result;
-    VALUE ret;
-
-    result = exec_sql_statement( argc, argv, self, 0);
-    ret = PQntuples( result) ? fetch_pgresult( result, 0, 0) : Qnil;
-    PQclear( result);
-    return ret;
-}
-
-/*
- * call-seq:
- *   conn.select_values( query, *bind_values)
- *
- * Equivalent to conn.query( query, *bind_values).flatten
- */
-VALUE
-pgconn_select_values( int argc, VALUE *argv, VALUE self)
-{
-    PGresult *result;
-    int n, m;
-    VALUE ret;
-    int i, j, k;
-
-    result = exec_sql_statement( argc, argv, self, 0);
-    n = PQntuples( result), m = PQnfields( result);
-    ret = rb_ary_new2( n * m);
-    for (i = 0, k = 0; n; ++i, --n) {
-        for (j = 0; m; ++j, --m, ++k)
-            rb_ary_store( ret, k, fetch_pgresult( result, i, j));
-        m = j;
-    }
-    PQclear( result);
-    return ret;
-}
-
-/*
- * call-seq:
- *    conn.get_notify()  -> ary or nil
- *
- * Returns a notifier. If there is no unprocessed notifier, it returns +nil+.
- */
-VALUE
-pgconn_get_notify( VALUE self)
-{
-    PGconn *conn;
-    PGnotify *notify;
-    VALUE ret;
-
-    conn = get_pgconn( self);
-    if (PQconsumeInput( conn) == 0)
-        pg_raise_pgconn( conn);
-    notify = PQnotifies( conn);
-    if (notify == NULL)
-        return Qnil;
-    ret = rb_ary_new3( 3, rb_tainted_str_new2( notify->relname),
-                          INT2NUM( notify->be_pid),
-                          rb_tainted_str_new2( notify->extra));
-    PQfreemem( notify);
-    return ret;
-}
 
 
 
@@ -1161,7 +1013,7 @@ pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
 VALUE
 pgconn_transaction_status( VALUE self)
 {
-    return INT2NUM( PQtransactionStatus( get_pgconn( self)));
+    return INT2FIX( PQtransactionStatus( get_pgconn( self)));
 }
 
 

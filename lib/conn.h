@@ -22,6 +22,10 @@ struct pgconn_data {
 extern VALUE rb_cPgConn;
 
 
+extern void pg_check_conninvalid( struct pgconn_data *c);
+
+
+extern void pgconn_clear( struct pgconn_data *c);
 extern struct pgconn_data *get_pgconn( VALUE obj);
 extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 

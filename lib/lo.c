@@ -64,7 +64,7 @@ pgconn_loimport( VALUE self, VALUE filename)
     lo_oid = lo_import( conn, StringValueCStr( filename));
     if (lo_oid == 0)
         pg_raise_pgconn( conn);
-    return INT2NUM( lo_oid);
+    return INT2FIX( lo_oid);
 }
 
 /*
@@ -313,7 +313,7 @@ pglarge_oid( VALUE self)
     struct pglarge_data *l;
 
     Data_Get_Struct( self, struct pglarge_data, l);
-    return INT2NUM( l->lo_oid);
+    return INT2FIX( l->lo_oid);
 }
 
 /*

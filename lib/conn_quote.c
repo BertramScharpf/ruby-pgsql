@@ -12,7 +12,7 @@ static VALUE pgconn_format( VALUE self, VALUE obj);
 
 static VALUE pgconn_escape_bytea(   VALUE self, VALUE obj);
 static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
-extern VALUE string_unescape_bytea( char *escaped);
+static VALUE string_unescape_bytea( const char *escaped);
 
 extern VALUE pgconn_stringize( VALUE self, VALUE obj);
 extern VALUE pgconn_stringize_line( VALUE self, VALUE ary);
@@ -153,7 +153,7 @@ pgconn_unescape_bytea( VALUE self, VALUE str)
 }
 
 VALUE
-string_unescape_bytea( char *escaped)
+string_unescape_bytea( const char *escaped)
 {
     unsigned char *s;
     size_t l;
