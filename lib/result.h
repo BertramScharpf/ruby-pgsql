@@ -37,16 +37,7 @@ extern VALUE pg_fetchrow( VALUE ary, struct pgresult_data *r, int num);
 extern VALUE pg_fetchresult( struct pgresult_data *r, int row, int col);
 
 
-
 extern void Init_pgsql_result( void);
-
-
-
-#ifdef TODO_DONE
-extern PGresult *get_pgresult( VALUE obj);
-
-extern VALUE field_index( VALUE fields, VALUE name);
-#endif
 
 
 #endif

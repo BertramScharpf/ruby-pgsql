@@ -661,8 +661,19 @@ pgconn_untrace( VALUE self)
 
 
 
+/********************************************************************
+ *
+ * Document-class: Pg::Conn::Failed
+ *
+ * Error while establishing a connection to the PostgreSQL server.
+ */
 
-
+/********************************************************************
+ *
+ * Document-class: Pg::Conn::Invalid
+ *
+ * Invalid (closed) connection.
+ */
 
 
 /********************************************************************
@@ -1239,13 +1250,6 @@ pgconn_each_line( VALUE self)
 
 
 
-
-/********************************************************************
- *
- * Document-class: Pg::Conn::Error
- *
- * Error while querying from a PostgreSQL connection.
- */
 
 #endif
 

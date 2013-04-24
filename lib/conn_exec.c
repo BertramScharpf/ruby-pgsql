@@ -418,6 +418,13 @@ pgconn_get_notify( VALUE self)
 
 
 
+/********************************************************************
+ *
+ * Document-class: Pg::Conn::Exec
+ *
+ * Error while querying from a PostgreSQL connection.
+ */
+
 
 void
 Init_pgsql_conn_exec( void)
