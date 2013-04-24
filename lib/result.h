@@ -6,21 +6,33 @@
 #define __RESULT_H
 
 #include "module.h"
+#include "conn.h"
+
 
 struct pgresult_data {
     PGresult           *res;
     struct pgconn_data *conn;
 };
 
+struct pgreserr_data {
+    PGresult           *res;
+    struct pgconn_data *conn;
+    VALUE               command;
+    VALUE               params;
+};
+
+
+
+extern int pg_checkresult( PGresult *result, struct pgconn_data *conn);
+extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
 
 
 
 extern void Init_pgsql_result( void);
 
 
-#ifdef TODO_DONE
-extern VALUE pgreserror_new( PGresult *ptr, VALUE cmd, VALUE args);
 
+#ifdef TODO_DONE
 extern PGresult *get_pgresult( VALUE obj);
 
 

@@ -6,7 +6,228 @@
 #include "result.h"
 
 
+
+extern int pg_checkresult( PGresult *result, struct pgconn_data *conn);
+static void pgreserr_mark( struct pgreserr_data *ptr);
+static void pgreserr_free( struct pgreserr_data *ptr);
+extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
+
+static VALUE pgreserror_command( VALUE self);
+static VALUE pgreserror_params(  VALUE self);
+
+static VALUE pgreserror_status(  VALUE self);
+static VALUE pgreserror_sqlst(   VALUE self);
+static VALUE pgreserror_primary( VALUE self);
+static VALUE pgreserror_detail(  VALUE self);
+static VALUE pgreserror_hint(    VALUE self);
+static VALUE pgreserror_diag(    VALUE self, VALUE field);
+
+
+
 static VALUE rb_cBigDecimal;
+
+static VALUE rb_cPgResult;
+static VALUE rb_ePgResError;
+
+
+
+
+int
+pg_checkresult( PGresult *result, struct pgconn_data *conn)
+{
+    int s;
+
+    s = PQresultStatus( result);
+    switch (s) {
+        case PGRES_EMPTY_QUERY:
+        case PGRES_COMMAND_OK:
+        case PGRES_TUPLES_OK:
+        case PGRES_COPY_OUT:
+        case PGRES_COPY_IN:
+            break;
+        case PGRES_BAD_RESPONSE:
+        case PGRES_NONFATAL_ERROR:
+        case PGRES_FATAL_ERROR:
+            rb_exc_raise( pgreserror_new( result, conn));
+            break;
+        default:
+            PQclear( result);
+            rb_raise( rb_ePgError, "internal error: unknown result status.");
+            break;
+    }
+    return s;
+}
+
+
+void
+pgreserr_mark( struct pgreserr_data *ptr)
+{
+    rb_gc_mark( ptr->command);
+    rb_gc_mark( ptr->params);
+}
+
+void
+pgreserr_free( struct pgreserr_data *ptr)
+{
+    PQclear( ptr->res);
+    free( ptr);
+}
+
+VALUE
+pgreserror_new( PGresult *result, struct pgconn_data *conn)
+{
+    struct pgreserr_data *r;
+    VALUE rse, msg;
+
+    rse = Data_Make_Struct( rb_ePgResError, struct pgreserr_data, &pgreserr_mark, &pgreserr_free, r);
+    r->res = result;
+    r->conn    = conn;
+    r->command = conn->command;  conn->command = Qnil;
+    r->params  = conn->params;   conn->params  = Qnil;
+    msg = rb_str_new2( PQresultErrorMessage( result));
+    rb_obj_call_init( rse, 1, &msg);
+    return rse;
+}
+
+
+
+/*
+ * call-seq:
+ *   pgqe.command() => str
+ *
+ * The command that produced this error.
+ *
+ */
+VALUE
+pgreserror_command( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return r->command;
+}
+
+/*
+ * call-seq:
+ *   pgqe.parameters() => +ary+ or +nil+
+ *
+ * The parameters of the command that produced this error.
+ *
+ */
+VALUE
+pgreserror_params( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return r->params;
+}
+
+
+
+
+/*
+ * call-seq:
+ *   pgqe.status() => num
+ *
+ * Forward PostgreSQL's error code.
+ *
+ */
+VALUE
+pgreserror_status( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return INT2NUM( PQresultStatus( r->res));
+}
+
+/*
+ * call-seq:
+ *   pgqe.sqlstate() => string
+ *
+ * Forward PostgreSQL's error code.
+ *
+ */
+VALUE
+pgreserror_sqlst( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_SQLSTATE));
+}
+
+/*
+ * call-seq:
+ *   pgqe.primary() => string
+ *
+ * Forward PostgreSQL's primary error message.
+ *
+ */
+VALUE
+pgreserror_primary( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_PRIMARY));
+}
+
+
+/*
+ * call-seq:
+ *   pgqe.details() => string
+ *
+ * Forward PostgreSQL's error details.
+ *
+ */
+VALUE
+pgreserror_detail( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_DETAIL));
+}
+
+
+/*
+ * call-seq:
+ *   pgqe.hint() => string
+ *
+ * Forward PostgreSQL's error hint.
+ *
+ */
+VALUE
+pgreserror_hint( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_HINT));
+}
+
+
+/*
+ * call-seq:
+ *   pgqe.diag( field) => string
+ *
+ * Error diagnose message. Give one of the PG_DIAG_* constants
+ * to specify a field.
+ *
+ */
+VALUE
+pgreserror_diag( VALUE self, VALUE field)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, NUM2INT( field)));
+}
+
+
+
 
 
 
@@ -35,6 +256,39 @@ Init_pgsql_result( void)
     rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
+
+
+    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
+    rb_undef_method( CLASS_OF( rb_ePgResError), "new");
+
+    rb_define_method( rb_ePgResError, "command",    pgreserror_command, 0);
+    rb_define_method( rb_ePgResError, "parameters", pgreserror_params, 0);
+
+    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
+    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
+    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
+    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
+    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
+    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
+
+    rb_define_method( rb_ePgResError, "diag", pgreserror_diag, 1);
+
+#define PGD_DEF( c) rb_define_const( rb_ePgResError, #c, INT2FIX( PG_DIAG_ ## c))
+    PGD_DEF( SEVERITY);
+    PGD_DEF( SQLSTATE);
+    PGD_DEF( MESSAGE_PRIMARY);
+    PGD_DEF( MESSAGE_DETAIL);
+    PGD_DEF( MESSAGE_HINT);
+    PGD_DEF( STATEMENT_POSITION);
+    PGD_DEF( INTERNAL_POSITION);
+    PGD_DEF( INTERNAL_QUERY);
+    PGD_DEF( CONTEXT);
+    PGD_DEF( SOURCE_FILE);
+    PGD_DEF( SOURCE_LINE);
+    PGD_DEF( SOURCE_FUNCTION);
+#undef PGD_DEF
+
+
 
 #ifdef TODO_DONE
 #if 0
@@ -81,22 +335,6 @@ Init_pgsql_result( void)
     rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
     rb_define_alias( rb_cPgResult, "close", "clear");
 
-
-    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error",
-                                                                rb_ePgError);
-    rb_define_alloc_func( rb_ePgResError, pgreserror_alloc);
-
-    rb_define_attr( rb_ePgResError, "command",    1, 0);
-    rb_define_attr( rb_ePgResError, "parameters", 1, 0);
-
-    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
-    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
-    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
-    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
-    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
-    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
-
-
     id_parse    = rb_intern( "parse");
     id_index    = rb_intern( "index");
 #endif
@@ -131,8 +369,6 @@ static ID id_index;
 static int  get_field_number( PGresult *result, VALUE index);
 static int  get_tuple_number( PGresult *result, VALUE index);
 
-static VALUE pgreserror_alloc( VALUE cls);
-
 static void  free_pgresult( struct pgresult_data *ptr);
 static VALUE pgresult_alloc( VALUE cls);
 static VALUE pgresult_status( VALUE obj);
@@ -154,17 +390,6 @@ static VALUE pgresult_getisnull( VALUE obj, VALUE tup_num, VALUE field_num);
 static VALUE pgresult_cmdtuples( VALUE obj);
 static VALUE pgresult_cmdstatus( VALUE obj);
 static VALUE pgresult_oid( VALUE obj);
-
-
-static VALUE pgreserror_status( VALUE obj);
-static VALUE pgreserror_sqlst( VALUE self);
-static VALUE pgreserror_primary( VALUE self);
-static VALUE pgreserror_detail( VALUE self);
-static VALUE pgreserror_hint( VALUE self);
-
-
-static VALUE rb_cPgResult;
-static VALUE rb_ePgResError;
 
 
 PGresult *
@@ -202,108 +427,6 @@ get_field_number( PGresult *result, VALUE index)
 
 
 
-VALUE
-pgreserror_alloc( VALUE cls)
-{
-    struct pgresult_data *r;
-
-    return Data_Wrap_Struct( cls, 0, &free_pgresult, r);
-}
-
-
-VALUE
-pgreserror_new( PGresult *result, VALUE cmd, VALUE args)
-{
-    VALUE rse, msg;
-
-    rse = pgresult_alloc( rb_ePgResError);
-    DATA_PTR( rse)->res = result;
-    msg = rb_str_new2( PQresultErrorMessage( result));
-    rb_obj_call_init( rse, 1, &msg);
-    rb_ivar_set( rse, rb_intern( "@command"),    cmd);
-    rb_ivar_set( rse, rb_intern( "@parameters"), args);
-    return rse;
-}
-
-
-/*
- * call-seq:
- *   pgqe.status() => num
- *
- * Forward PostgreSQL's error code.
- *
- */
-VALUE
-pgreserror_status( VALUE self)
-{
-    return INT2NUM( PQresultStatus( get_pgresult( self)));
-}
-
-/*
- * call-seq:
- *   pgqe.sqlstate() => string
- *
- * Forward PostgreSQL's error code.
- *
- */
-VALUE
-pgreserror_sqlst( VALUE self)
-{
-    char *e;
-
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_SQLSTATE);
-    return rb_str_new2( e);
-}
-
-/*
- * call-seq:
- *   pgqe.primary() => string
- *
- * Forward PostgreSQL's primary error message.
- *
- */
-VALUE
-pgreserror_primary( VALUE self)
-{
-    char *e;
-
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_MESSAGE_PRIMARY);
-    return rb_str_new2( e);
-}
-
-
-/*
- * call-seq:
- *   pgqe.details() => string
- *
- * Forward PostgreSQL's error details.
- *
- */
-VALUE
-pgreserror_detail( VALUE self)
-{
-    char *e;
-
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_MESSAGE_DETAIL);
-    return e == NULL ? Qnil : rb_str_new2( e);
-}
-
-
-/*
- * call-seq:
- *   pgqe.hint() => string
- *
- * Forward PostgreSQL's error hint.
- *
- */
-VALUE
-pgreserror_hint( VALUE self)
-{
-    char *e;
-
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_MESSAGE_HINT);
-    return e == NULL ? Qnil : rb_str_new2( e);
-}
 
 
 void

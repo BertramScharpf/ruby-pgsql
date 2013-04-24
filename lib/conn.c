@@ -35,7 +35,7 @@
 static void  pgconn_mark( struct pgconn_data *ptr);
 static void  pgconn_free( struct pgconn_data *ptr);
 extern struct pgconn_data *get_pgconn( VALUE obj);
-static VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
+extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 static VALUE pgconn_alloc( VALUE cls);
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
 static VALUE pgconn_s_parse( VALUE cls, VALUE str);
@@ -76,6 +76,8 @@ static VALUE rb_ePgConnInvalid;
 void
 pgconn_mark( struct pgconn_data *ptr)
 {
+    rb_gc_mark( ptr->command);
+    rb_gc_mark( ptr->params);
     rb_gc_mark( ptr->notice);
 }
 
@@ -103,10 +105,13 @@ pgconn_mkstring( struct pgconn_data *ptr, const char *str)
 {
     VALUE r;
 
-    r = rb_tainted_str_new2( str);
+    if (str) {
+        r = rb_tainted_str_new2( str);
 #ifdef TODO_RUBY19_ENCODING
-    rb_encode_it( str, ptr->external);
+        rb_encode_it( str, ptr->external);
 #endif
+    } else
+        r = Qnil;
     return r;
 }
 
@@ -118,8 +123,10 @@ pgconn_alloc( VALUE cls)
 
     r = Data_Make_Struct( cls, struct pgconn_data,
                             &pgconn_mark, &pgconn_free, c);
-    c->conn = NULL;
-    c->notice = Qnil;
+    c->conn    = NULL;
+    c->command = Qnil;
+    c->params  = Qnil;
+    c->notice  = Qnil;
     return r;
 }
 
@@ -731,7 +738,6 @@ Init_pgsql_conn( void)
     rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
 
 #define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
-    rb_ePgConnError  = ERR_DEF( "Error");
     rb_ePgTransError = ERR_DEF( "InTransaction");
 #undef ERR_DEF
 
@@ -750,7 +756,6 @@ static id_command;
 static id_parameters;
 
 
-static int       pg_checkresult( PGresult *result);
 static PGresult *pg_pqexec( PGconn *conn, VALUE cmd);
 
 static void  notice_receiver( void *self, const PGresult *result);
@@ -760,8 +765,6 @@ static VALUE pgconn_on_notice( VALUE self);
 
 
 
-static char **params_to_strings( VALUE conn, VALUE params);
-static void free_strings( char **strs, int len);
 static PGresult *exec_sql_statement( int argc, VALUE *argv, VALUE self, int store);
 static VALUE yield_or_return_result( VALUE res);
 static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
@@ -791,41 +794,10 @@ static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_each_line( VALUE self);
 
-static void pgconn_cmd_set( VALUE self, VALUE command, VALUE params);
-static void pgconn_cmd_clear( VALUE self);
 
-static void  pg_raise_pgres( VALUE self, PGresult *result);
-
-
-static VALUE rb_ePgConnError;
 static VALUE rb_ePgTransError;
 
 
-int
-pg_checkresult( PGresult *result)
-{
-    int s;
-
-    s = PQresultStatus( result);
-    switch (s) {
-        case PGRES_EMPTY_QUERY:
-        case PGRES_COMMAND_OK:
-        case PGRES_TUPLES_OK:
-        case PGRES_COPY_OUT:
-        case PGRES_COPY_IN:
-            break;
-        case PGRES_BAD_RESPONSE:
-        case PGRES_NONFATAL_ERROR:
-        case PGRES_FATAL_ERROR:
-            return -1;
-            break;
-        default:
-            PQclear( result);
-            rb_raise( rb_ePgError, "internal error: unknown result status.");
-            break;
-    }
-    return s;
-}
 
 PGresult *
 pg_pqexec( PGconn *conn, VALUE cmd)
@@ -835,8 +807,7 @@ pg_pqexec( PGconn *conn, VALUE cmd)
     result = PQexec( conn, RSTRING_PTR( cmd));
     if (result == NULL)
         pg_raise_pgconn( conn);
-    if (pg_checkresult( result) < 0)
-        rb_exc_raise( pgreserror_new( result, cmd, Qnil));
+    pg_checkresult( result, c);
     return result;
 }
 
@@ -855,14 +826,15 @@ get_pgconn( VALUE obj)
 void
 notice_receiver( void *self, const PGresult *result)
 {
+    struct pgconn_data *c;
     VALUE block;
 
-    block = rb_ivar_get( (VALUE) self, id_on_notice);
-    if (block != Qnil) {
+    Data_Get_Struct( obj, struct pgconn_data, c);
+    if (c->notice != Qnil) {
         VALUE err;
 
-        err = pgreserror_new( (PGresult *) result, Qnil, Qnil);
-        rb_proc_call( b, rb_ary_new4( 1l, &err));
+        err = pgreserror_new( (PGresult *) result, c);
+        rb_proc_call( c->notice, rb_ary_new4( 1l, &err));
         /* PQclear will be done by Postgres. */
     }
 }
@@ -906,45 +878,6 @@ pgconn_on_notice( VALUE self)
 
 
 
-char **
-params_to_strings( VALUE conn, VALUE params)
-{
-    VALUE *ptr;
-    int len;
-    char **values, **v;
-    VALUE str;
-    char *a;
-
-    ptr = RARRAY_PTR( params);
-    len = RARRAY_LEN( params);
-    values = ALLOC_N( char *, len);
-    for (v = values; len; v++, ptr++, len--)
-        if (NIL_P( *ptr))
-            *v = NULL;
-        else {
-            char *p, *q;
-
-            str = pgconn_stringize( conn, *ptr);
-            a = ALLOC_N( char, RSTRING_LEN( str) + 1);
-            for (p = a, q = RSTRING_PTR( str); *p = *q; ++p, ++q)
-                ;
-            *v = a;
-        }
-    return values;
-}
-
-void
-free_strings( char **strs, int len)
-{
-    char **p;
-    int l;
-
-    for (p = strs, l = len; l; --l, ++p)
-        xfree( *p);
-    xfree( strs);
-}
-
-
 PGresult *
 exec_sql_statement( int argc, VALUE *argv, VALUE self, int store)
 {
@@ -969,10 +902,9 @@ exec_sql_statement( int argc, VALUE *argv, VALUE self, int store)
     }
     if (result == NULL)
         pg_raise_pgconn( conn);
-    if (pg_checkresult( result) < 0)
-        rb_exc_raise( pgreserror_new( result, command, params));
     if (store)
         pgconn_cmd_set( self, command, params);
+    pg_checkresult( result, c);
     return result;
 }
 
@@ -1094,10 +1026,7 @@ pgconn_fetch( VALUE self)
     if (result == NULL)
         res = Qnil;
     else {
-        VALUE res;
-
-        if (pg_checkresult( result) < 0)
-            pg_raise_pgres( self, result);
+        pg_checkresult( result, c);
         res = pgresult_new( c, result);
     }
     return yield_or_return_result( res);
@@ -1396,8 +1325,7 @@ put_end( VALUE self)
         pg_raise_pgconn( conn);
 
     while ((res = PQgetResult( conn)) != NULL) {
-        if (pg_checkresult( res) < 0 && NIL_P( RB_ERRINFO))
-            pg_raise_pgres( self, res);
+        pg_checkresult( result, c);
         PQclear( res);
     }
     pgconn_cmd_clear( self);
@@ -1494,8 +1422,8 @@ get_end( VALUE self)
     conn = get_pgconn( self);
 
     while ((res = PQgetResult( conn)) != NULL) {
-        if (pg_checkresult( res) < 0 && NIL_P( RB_ERRINFO))
-            pg_raise_pgres( self, res);
+        if (NIL_P( RB_ERRINFO))
+            pg_checkresult( result, c);
         PQclear( res);
     }
     pgconn_cmd_clear( self);
@@ -1606,37 +1534,6 @@ pgconn_each_line( VALUE self)
 
 
 
-void
-pgconn_cmd_set( VALUE self, VALUE command, VALUE params)
-{
-    rb_ivar_set( self, id_command,    command);
-    rb_ivar_set( self, id_parameters, params);
-}
-
-void
-pgconn_cmd_clear( VALUE self)
-{
-    rb_ivar_set( self, id_command,    Qnil);
-    rb_ivar_set( self, id_parameters, Qnil);
-}
-
-
-void
-pg_raise_pgconn( PGconn *conn)
-{
-    rb_raise( rb_ePgConnError, PQerrorMessage( conn));
-}
-
-void
-pg_raise_pgres( VALUE self, PGresult *result)
-{
-    VALUE c, p;
-
-    c = rb_ivar_get( self, id_command);
-    p = rb_ivar_get( self, id_parameters);
-    pgconn_cmd_clear( self);
-    rb_exc_raise( pgreserror_new( result, c, p));
-}
 
 /********************************************************************
  *

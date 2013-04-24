@@ -13,6 +13,8 @@ struct pgconn_data {
     rb_encoding *external;
     rb_encoding *internal;
 #endif
+    VALUE   command;
+    VALUE   params;
     VALUE   notice;
 };
 
@@ -21,6 +23,7 @@ extern VALUE rb_cPgConn;
 
 
 extern struct pgconn_data *get_pgconn( VALUE obj);
+extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 
 extern void Init_pgsql_conn( void);
 
