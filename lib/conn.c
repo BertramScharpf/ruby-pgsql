@@ -5,20 +5,13 @@
 
 #include "conn.h"
 
-#ifdef TODO_DONE
-#include "result.h"
-
-
 #if defined( HAVE_HEADER_ST_H)
     #include <st.h>
-#elif defined( HAVE_HEADER_RUBY_ST_H)
-    #include <ruby/st.h>
 #endif
-#if defined( HAVE_HEADER_INTERN_H)
-    #include <intern.h>
-#elif defined( HAVE_HEADER_RUBY_INTERN_H)
-    #include <ruby/intern.h>
-#endif
+
+
+#ifdef TODO_DONE
+#include "result.h"
 
 #ifdef HAVE_FUNC_RB_ERRINFO
     #define RB_ERRINFO (rb_errinfo())
