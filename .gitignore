@@ -9,6 +9,7 @@
 
 *.o
 *.so
+*.core
 
 pgsql-*.gem
 

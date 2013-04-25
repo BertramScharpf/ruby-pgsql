@@ -25,7 +25,7 @@ struct pgreserr_data {
 
 
 
-extern int pg_checkresult( PGresult *result, struct pgconn_data *conn);
+extern void pg_checkresult( PGresult *result, struct pgconn_data *conn);
 extern void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
 extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
 

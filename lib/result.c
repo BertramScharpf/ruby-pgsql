@@ -8,7 +8,7 @@
 #include "conn_quote.h"
 
 
-extern int pg_checkresult( PGresult *result, struct pgconn_data *conn);
+extern void pg_checkresult( PGresult *result, struct pgconn_data *conn);
 static void pgreserr_mark( struct pgreserr_data *ptr);
 static void pgreserr_free( struct pgreserr_data *ptr);
 extern void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
@@ -73,13 +73,10 @@ static int translate_results = 1;
 
 
 
-int
+void
 pg_checkresult( PGresult *result, struct pgconn_data *conn)
 {
-    int s;
-
-    s = PQresultStatus( result);
-    switch (s) {
+    switch (PQresultStatus( result)) {
         case PGRES_EMPTY_QUERY:
         case PGRES_COMMAND_OK:
         case PGRES_TUPLES_OK:
@@ -96,7 +93,6 @@ pg_checkresult( PGresult *result, struct pgconn_data *conn)
             rb_raise( rb_ePgError, "internal error: unknown result status.");
             break;
     }
-    return s;
 }
 
 

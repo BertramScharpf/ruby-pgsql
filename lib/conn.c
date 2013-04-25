@@ -65,7 +65,6 @@ static VALUE pgconn_on_notice( VALUE self);
 static void  notice_receiver( void *self, const PGresult *result);
 
 
-
 VALUE rb_cPgConn;
 
 static VALUE rb_ePgConnFailed;
@@ -291,7 +290,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
 
     Data_Get_Struct( self, struct pgconn_data, c);
-    c->conn = PQconnectdbParams( keywords, values, 0);
+    c->conn = PQconnectdbParams( keywords, values, 1);
     if (PQstatus( c->conn) == CONNECTION_BAD)
         rb_raise( rb_ePgConnFailed, PQerrorMessage( c->conn));
 
@@ -731,7 +730,6 @@ notice_receiver( void *self, const PGresult *result)
 
 
 
-
 /********************************************************************
  *
  * Document-class: Pg::Conn::Failed
@@ -804,8 +802,7 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "status", pgconn_status, 0);
     rb_define_method( rb_cPgConn, "error", pgconn_error, 0);
 
-#define CONN_DEF( c) \
-            rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
+#define CONN_DEF( c) rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
     CONN_DEF( OK);
     CONN_DEF( BAD);
 #undef CONN_DEF
@@ -818,270 +815,7 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
 
-
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();
-
-
-
-#ifdef TODO_DONE
-
-    rb_define_method( rb_cPgConn, "copy_stdin", pgconn_copy_stdin, -1);
-    rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
-    rb_define_alias( rb_cPgConn, "put", "putline");
-    rb_define_method( rb_cPgConn, "copy_stdout", pgconn_copy_stdout, -1);
-    rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
-    rb_define_alias( rb_cPgConn, "get", "getline");
-    rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
-    rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
-
-#endif
 }
-
-
-#ifdef TODO_DONE
-
-static VALUE put_end( VALUE conn);
-static VALUE pgconn_copy_stdin( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_putline( VALUE self, VALUE str);
-static VALUE get_end( VALUE conn);
-static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_each_line( VALUE self);
-
-
-
-
-VALUE
-put_end( VALUE self)
-{
-    PGconn *conn;
-    int r;
-    PGresult *res;
-
-    conn = get_pgconn( self);
-    /*
-     * I would like to hand over something like
-     *     RSTRING_PTR( rb_obj_as_string( RB_ERRINFO))
-     * here but when execution is inside a rescue block
-     * the error info will be non-null even though the
-     * exception just has been caught.
-     */
-    while ((r = PQputCopyEnd( conn, NULL)) == 0)
-        ;
-    if (r < 0)
-        pg_raise_pgconn( conn);
-
-    while ((res = PQgetResult( conn)) != NULL) {
-        pg_checkresult( result, c);
-        PQclear( res);
-    }
-    pgconn_cmd_clear( self);
-    return Qnil;
-}
-
-/*
- * call-seq:
- *    conn.copy_stdin( sql, *bind_values) { |result| ... }   ->  nil
- *
- * Write lines into a +COPY+ command. See +stringize_line+ for how to build
- * standard lines.
- *
- *   conn.copy_stdin "copy t from stdin;" do
- *      ary = ...
- *      l = stringize_line ary
- *      conn.put l
- *   end
- *
- * You may write a "\\." yourself if you like it.
- */
-VALUE
-pgconn_copy_stdin( int argc, VALUE *argv, VALUE self)
-{
-    struct pgconn_data *c;
-    VALUE res;
-
-    Data_Get_Struct( self, struct pgconn_data, c);
-    res = pgresult_new( c, exec_sql_statement( argc, argv, self, 0));
-    return rb_ensure( rb_yield, res, put_end, self);
-}
-
-/*
- * call-seq:
- *    conn.putline( str)         -> nil
- *    conn.putline( ary)         -> nil
- *    conn.putline( str) { ... } -> nil
- *
- * Sends the string to the backend server.
- * You have to open the stream with a +COPY+ command using +copy_stdin+.
- *
- * If +str+ doesn't end in a newline, one is appended. If the argument
- * is +ary+, a line will be built using +stringize_line+.
- *
- * If the connection is in nonblocking mode the block will be called
- * and its value will be returned.
- */
-VALUE
-pgconn_putline( VALUE self, VALUE arg)
-{
-    VALUE str;
-    char *p;
-    int l;
-    PGconn *conn;
-    int r;
-
-    switch (TYPE( arg)) {
-    case T_STRING:
-        str = arg;
-        break;
-    case T_ARRAY:
-        str = pgconn_stringize_line( self, arg);
-        break;
-    default:
-        str = rb_obj_as_string( arg);
-        break;
-    }
-    p = RSTRING_PTR( str), l = RSTRING_LEN( str);
-    if (p[ l - 1] != '\n') {
-        VALUE t;
-
-        t = rb_str_new( p, l);
-        rb_str_buf_cat( t, "\n", 1);
-        p = RSTRING_PTR( t), l = RSTRING_LEN( t);
-    }
-
-    conn = get_pgconn( self);
-    r = PQputCopyData( conn, p, l);
-    if (r < 0)
-        pg_raise_pgconn( conn);
-    else if (r == 0)
-        return rb_yield( Qnil);
-    return Qnil;
-}
-
-
-VALUE
-get_end( VALUE self)
-{
-    PGconn *conn;
-    char *b;
-    PGresult *res;
-
-    conn = get_pgconn( self);
-
-    while ((res = PQgetResult( conn)) != NULL) {
-        if (NIL_P( RB_ERRINFO))
-            pg_checkresult( result, c);
-        PQclear( res);
-    }
-    pgconn_cmd_clear( self);
-    return Qnil;
-}
-
-/*
- * call-seq:
- *    conn.copy_stdout( sql, *bind_values) { ... }   ->  nil
- *
- * Read lines from a +COPY+ command.  The form of the lines depends
- * on the statement's parameters.
- *
- *   conn.copy_stdout "copy t to stdout;" do
- *     l = conn.getline
- *     ary = l.split /\t/
- *     ary.map! { |x|
- *       unless x == "\\N" then
- *         x.gsub! /\\(.)/ do
- *           case $1
- *              when "t"  then "\t"
- *              when "n"  then "\n"
- *              when "\\" then "\\"
- *           end
- *         end
- *       end
- *     }
- *     ...
- *   end
- */
-VALUE
-pgconn_copy_stdout( int argc, VALUE *argv, VALUE self)
-{
-    struct pgconn_data *c;
-    VALUE res;
-
-    Data_Get_Struct( self, struct pgconn_data, c);
-    res = pgresult_new( c, exec_sql_statement( argc, argv, self, 0));
-    return rb_ensure( rb_yield, res, get_end, self);
-}
-
-/*
- * call-seq:
- *    conn.getline( async = nil)         -> str
- *    conn.getline( async = nil) { ... } -> str
- *
- * Reads a line from the backend server after a +COPY+ command.
- * Returns +nil+ for EOF.
- *
- * If async is +true+ then the block will be called and its value
- * will be returned.
- *
- * Call this method inside a block passed to +copy_stdout+. See
- * there for an example.
- */
-VALUE
-pgconn_getline( int argc, VALUE *argv, VALUE self)
-{
-    VALUE as;
-    int async;
-    PGconn *conn;
-    char *b;
-    int r;
-
-    async = rb_scan_args( argc, argv, "01", &as) > 0 && !NIL_P( as) ? 1 : 0;
-
-    conn = get_pgconn( self);
-    r = PQgetCopyData( conn, &b, async);
-    if (r > 0) {
-        VALUE ret;
-
-        ret = rb_tainted_str_new( b, r);
-        PQfreemem( b);
-        return ret;
-    } else if (r == 0)
-        return rb_yield( Qnil);
-    else {
-        /* PQgetResult() will be called in the ensure block. */
-    }
-    return Qnil;
-}
-
-/*
- * call-seq:
- *    conn.each_line() { |line| ... } -> nil
- *
- * Reads line after line from a +COPY+ command.
- *
- * Call this method inside a block passed to +copy_stdout+. See
- * there for an example.
- */
-VALUE
-pgconn_each_line( VALUE self)
-{
-    PGconn *conn;
-    char *b;
-    int r;
-    VALUE s;
-
-    conn = get_pgconn( self);
-    for (; (r = PQgetCopyData( conn, &b, 0)) > 0;) {
-        s = rb_tainted_str_new( b, r);
-        PQfreemem( b);
-        rb_yield( s);
-    }
-    return Qnil;
-}
-
-
-
-
-#endif
 
