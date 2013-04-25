@@ -43,7 +43,7 @@ static VALUE pgresult_fieldnum( VALUE self, VALUE name);
 
 extern VALUE pgresult_each( VALUE self);
 static VALUE pgresult_aref( int argc, VALUE *argv, VALUE self);
-extern VALUE pg_fetchrow( VALUE ary, struct pgresult_data *r, int num);
+extern VALUE pg_fetchrow( struct pgresult_data *r, int num);
 extern VALUE pg_fetchresult( struct pgresult_data *r, int row, int col);
 static VALUE pgresult_num_tuples( VALUE self);
 
@@ -513,14 +513,10 @@ pgresult_each( VALUE self)
 {
     struct pgresult_data *r;
     int m, j;
-    VALUE row;
 
     Data_Get_Struct( self, struct pgresult_data, r);
-    row = Qnil;
-    for (j = 0, m = PQntuples( r->res); m; j++, m--) {
-        row = pg_fetchrow( row, r, j);
-        rb_yield( row);
-    }
+    for (j = 0, m = PQntuples( r->res); m; j++, m--)
+        rb_yield( pg_fetchrow( r, j));
     return m ? INT2FIX( m) : Qnil;
 }
 
@@ -547,7 +543,7 @@ pgresult_aref( int argc, VALUE *argv, VALUE self)
     j = NUM2INT( aj);
     if (j < PQntuples( r->res)) {
         if (a == 1) {
-            return pg_fetchrow( Qnil, r, i);
+            return pg_fetchrow( r, i);
         } else {
             if (TYPE( ai) == T_STRING) {
                 ai = rb_hash_aref( pgresult_field_indices( self), ai);
@@ -564,13 +560,13 @@ pgresult_aref( int argc, VALUE *argv, VALUE self)
 
 
 VALUE
-pg_fetchrow( VALUE ary, struct pgresult_data *r, int num)
+pg_fetchrow( struct pgresult_data *r, int num)
 {
     VALUE row;
     int n, i;
 
     n = PQnfields( r->res);
-    row = NIL_P( ary) ? rb_ary_new2( n) : ary;
+    row = rb_ary_new2( n);
     for (i = 0, n; n; ++i, --n)
         rb_ary_store( row, i, pg_fetchresult( r, num, i));
     return row;

@@ -303,7 +303,7 @@ pgconn_query( int argc, VALUE *argv, VALUE self)
     result = pg_statement_exec( self, cmd, par);
     Data_Get_Struct( self, struct pgconn_data, c);
     pgconn_clear( c);
-    if (rb_block_given_p)() {
+    if (rb_block_given_p()) {
         VALUE res;
 
         res = pgresult_new( result, c);
@@ -317,7 +317,7 @@ pgconn_query( int argc, VALUE *argv, VALUE self)
         m = PQntuples( result);
         ret = rb_ary_new2( m);
         for (j = 0; m; ++j, --m)
-            rb_ary_store( ret, j, pg_fetchrow( Qnil, &r, j));
+            rb_ary_store( ret, j, pg_fetchrow( &r, j));
         PQclear( result);
         return ret;
     }
@@ -342,7 +342,7 @@ pgconn_select_one( int argc, VALUE *argv, VALUE self)
     Data_Get_Struct( self, struct pgconn_data, c);
     pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
     pgconn_clear( c);
-    row = PQntuples( r.res) ? pg_fetchrow( Qnil, &r, 0)
+    row = PQntuples( r.res) ? pg_fetchrow( &r, 0)
                             : Qnil;
     PQclear( r.res);
     return row;

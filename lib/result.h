@@ -33,7 +33,7 @@ extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
 extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn);
 extern VALUE pgresult_clear( VALUE self);
 extern VALUE pgresult_each( VALUE self);
-extern VALUE pg_fetchrow( VALUE ary, struct pgresult_data *r, int num);
+extern VALUE pg_fetchrow( struct pgresult_data *r, int num);
 extern VALUE pg_fetchresult( struct pgresult_data *r, int row, int col);
 
 
