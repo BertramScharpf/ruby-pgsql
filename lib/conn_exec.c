@@ -191,7 +191,7 @@ pgconn_exec( int argc, VALUE *argv, VALUE self)
 
 /*
  * call-seq:
- *    conn.send( sql, *bind_values)   -> nil
+ *    conn.send( sql, *bind_values) { |conn| ... }  -> nil
  *
  * Sends an asynchronous SQL query request specified by +sql+ to the
  * PostgreSQL server.
@@ -218,7 +218,7 @@ pgconn_send( int argc, VALUE *argv, VALUE self)
 
     pg_parse_parameters( argc, argv, &cmd, &par);
     pg_statement_send( self, cmd, par);
-    return rb_ensure( rb_yield, Qnil, clear_resultqueue, self);
+    return rb_ensure( rb_yield, self, clear_resultqueue, self);
 }
 
 /*
@@ -251,7 +251,7 @@ pgconn_fetch( VALUE self)
         pg_checkresult( result, c);
         res = pgresult_new( result, c);
     }
-    return yield_or_return_result( res);
+    return NIL_P( res) ? res : yield_or_return_result( res);
 }
 
 VALUE
@@ -261,7 +261,7 @@ yield_or_return_result( VALUE result)
 
     Data_Get_Struct( result, struct pgresult_data, r);
     pgconn_clear( r->conn);
-    return RTEST( rb_block_given_p()) ?
+    return rb_block_given_p() ?
         rb_ensure( rb_yield, result, pgresult_clear, result) : result;
 }
 
@@ -303,7 +303,7 @@ pgconn_query( int argc, VALUE *argv, VALUE self)
     result = pg_statement_exec( self, cmd, par);
     Data_Get_Struct( self, struct pgconn_data, c);
     pgconn_clear( c);
-    if (rb_block_given_p()) {
+    if (rb_block_given_p)() {
         VALUE res;
 
         res = pgresult_new( result, c);
@@ -432,7 +432,7 @@ pgconn_get_notify( VALUE self)
     ext = pgconn_mkstring( c, notify->extra);
     ret = rb_ary_new3( 3, rel, pid, ext);
     PQfreemem( notify);
-    return RTEST( rb_block_given_p()) ? rb_yield( ret) : ret;
+    return rb_block_given_p() ? rb_yield( ret) : ret;
 }
 
 

@@ -38,28 +38,28 @@ static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
 static void  connstr_passwd( VALUE self, VALUE params);
-static VALUE pgconn_close( VALUE obj);
-static VALUE pgconn_reset( VALUE obj);
+static VALUE pgconn_close( VALUE self);
+static VALUE pgconn_reset( VALUE self);
 
-static VALUE pgconn_client_encoding( VALUE obj);
-static VALUE pgconn_set_client_encoding( VALUE obj, VALUE str);
+static VALUE pgconn_client_encoding( VALUE self);
+static VALUE pgconn_set_client_encoding( VALUE self, VALUE str);
 
-static VALUE pgconn_protocol_version( VALUE obj);
-static VALUE pgconn_server_version(   VALUE obj);
+static VALUE pgconn_protocol_version( VALUE self);
+static VALUE pgconn_server_version(   VALUE self);
 
-static VALUE pgconn_db(      VALUE obj);
-static VALUE pgconn_host(    VALUE obj);
-static VALUE pgconn_options( VALUE obj);
-static VALUE pgconn_port(    VALUE obj);
-static VALUE pgconn_tty(     VALUE obj);
-static VALUE pgconn_user(    VALUE obj);
-static VALUE pgconn_status(  VALUE obj);
-static VALUE pgconn_error(   VALUE obj);
+static VALUE pgconn_db(      VALUE self);
+static VALUE pgconn_host(    VALUE self);
+static VALUE pgconn_options( VALUE self);
+static VALUE pgconn_port(    VALUE self);
+static VALUE pgconn_tty(     VALUE self);
+static VALUE pgconn_user(    VALUE self);
+static VALUE pgconn_status(  VALUE self);
+static VALUE pgconn_error(   VALUE self);
 
-static VALUE pgconn_socket(  VALUE obj);
+static VALUE pgconn_socket(  VALUE self);
 
-static VALUE pgconn_trace(   VALUE obj, VALUE port);
-static VALUE pgconn_untrace( VALUE obj);
+static VALUE pgconn_trace( int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_untrace( VALUE self);
 
 static VALUE pgconn_on_notice( VALUE self);
 static void  notice_receiver( void *self, const PGresult *result);
@@ -288,7 +288,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     ptrs[ 1] = values;
     ptrs[ 2] = (const char **) c;
     st_foreach( RHASH_TBL( params), &set_connect_params, (st_data_t) ptrs);
-    ptrs[ 0] = ptrs[ 1] = ptrs[ 2] = NULL;
+    *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
 
     Data_Get_Struct( self, struct pgconn_data, c);
     c->conn = PQconnectdbParams( keywords, values, 0);
@@ -388,11 +388,11 @@ connstr_passwd( VALUE self, VALUE params)
  * Closes the backend connection.
  */
 VALUE
-pgconn_close( VALUE obj)
+pgconn_close( VALUE self)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( obj, struct pgconn_data, c);
+    Data_Get_Struct( self, struct pgconn_data, c);
     PQfinish( c->conn);
     c->conn = NULL;
     return Qnil;
@@ -406,10 +406,10 @@ pgconn_close( VALUE obj)
  * and tries to re-connect.
  */
 VALUE
-pgconn_reset( VALUE obj)
+pgconn_reset( VALUE self)
 {
-    PQreset( get_pgconn( obj)->conn);
-    return obj;
+    PQreset( get_pgconn( self)->conn);
+    return self;
 }
 
 
@@ -456,9 +456,9 @@ pgconn_set_client_encoding( VALUE self, VALUE str)
  * 1.0 is obsolete and not supported by libpq.)
  */
 VALUE
-pgconn_protocol_version( VALUE obj)
+pgconn_protocol_version( VALUE self)
 {
-    return INT2FIX( PQprotocolVersion( get_pgconn( obj)->conn));
+    return INT2FIX( PQprotocolVersion( get_pgconn( self)->conn));
 }
 
 /*
@@ -472,9 +472,9 @@ pgconn_protocol_version( VALUE obj)
  * bad.
  */
 VALUE
-pgconn_server_version( VALUE obj)
+pgconn_server_version( VALUE self)
 {
-    return INT2FIX( PQserverVersion( get_pgconn( obj)->conn));
+    return INT2FIX( PQserverVersion( get_pgconn( self)->conn));
 }
 
 
@@ -485,12 +485,12 @@ pgconn_server_version( VALUE obj)
  * Returns the connected database name.
  */
 VALUE
-pgconn_db( VALUE obj)
+pgconn_db( VALUE self)
 {
     struct pgconn_data *c;
     char *db;
 
-    c = get_pgconn( obj);
+    c = get_pgconn( self);
     db = PQdb( c->conn);
     return db == NULL ? Qnil : pgconn_mkstring( c, db);
 }
@@ -502,12 +502,12 @@ pgconn_db( VALUE obj)
  * Returns the connected server name.
  */
 VALUE
-pgconn_host( VALUE obj)
+pgconn_host( VALUE self)
 {
     struct pgconn_data *c;
     char *host;
 
-    c = get_pgconn( obj);
+    c = get_pgconn( self);
     host = PQhost( c->conn);
     return host == NULL ? Qnil : pgconn_mkstring( c, host);
 }
@@ -519,12 +519,12 @@ pgconn_host( VALUE obj)
  * Returns backend option string.
  */
 VALUE
-pgconn_options( VALUE obj)
+pgconn_options( VALUE self)
 {
     struct pgconn_data *c;
     char *options;
 
-    c = get_pgconn( obj);
+    c = get_pgconn( self);
     options = PQoptions( c->conn);
     return options == NULL ? Qnil : pgconn_mkstring( c, options);
 }
@@ -536,9 +536,9 @@ pgconn_options( VALUE obj)
  * Returns the connected server port number.
  */
 VALUE
-pgconn_port( VALUE obj)
+pgconn_port( VALUE self)
 {
-    char* port = PQport( get_pgconn( obj)->conn);
+    char* port = PQport( get_pgconn( self)->conn);
     return port == NULL ? Qnil : INT2FIX( atol( port));
 }
 
@@ -549,12 +549,12 @@ pgconn_port( VALUE obj)
  * Returns the connected pgtty.
  */
 VALUE
-pgconn_tty( VALUE obj)
+pgconn_tty( VALUE self)
 {
     struct pgconn_data *c;
     char *tty;
 
-    c = get_pgconn( obj);
+    c = get_pgconn( self);
     tty = PQtty( c->conn);
     return tty == NULL ? Qnil : pgconn_mkstring( c, tty);
 }
@@ -566,12 +566,12 @@ pgconn_tty( VALUE obj)
  * Returns the authenticated user name.
  */
 VALUE
-pgconn_user( VALUE obj)
+pgconn_user( VALUE self)
 {
     struct pgconn_data *c;
     char *user;
 
-    c = get_pgconn( obj);
+    c = get_pgconn( self);
     user = PQuser( c->conn);
     return user == NULL ? Qnil : pgconn_mkstring( c, user);
 }
@@ -583,9 +583,9 @@ pgconn_user( VALUE obj)
  * This may return the values +CONNECTION_OK+ or +CONNECTION_BAD+.
  */
 VALUE
-pgconn_status( VALUE obj)
+pgconn_status( VALUE self)
 {
-    return INT2FIX( PQstatus( get_pgconn( obj)->conn));
+    return INT2FIX( PQstatus( get_pgconn( self)->conn));
 }
 
 /*
@@ -595,12 +595,12 @@ pgconn_status( VALUE obj)
  * Returns the error message about connection.
  */
 VALUE
-pgconn_error( VALUE obj)
+pgconn_error( VALUE self)
 {
     struct pgconn_data *c;
     char *error;
 
-    c = get_pgconn( obj);
+    c = get_pgconn( self);
     error = PQerrorMessage( c->conn);
     return error == NULL ? Qnil : pgconn_mkstring( c, error);
 }
@@ -614,7 +614,7 @@ pgconn_error( VALUE obj)
  * Returns the sockets IO object.
  */
 VALUE
-pgconn_socket( VALUE obj)
+pgconn_socket( VALUE self)
 {
     static ID id_new = 0;
     int fd;
@@ -622,25 +622,26 @@ pgconn_socket( VALUE obj)
     if (id_new == 0)
         id_new = rb_intern( "new");
 
-    fd = PQsocket( get_pgconn( obj)->conn);
+    fd = PQsocket( get_pgconn( self)->conn);
     return rb_funcall( rb_cIO, id_new, 1, INT2FIX( fd));
 }
 
 
 /*
  * call-seq:
- *    conn.trace( port)
- *    conn.trace( port) { ... }
+ *    conn.trace( file)
+ *    conn.trace( file) { ... }
  *
  * Enables tracing message passing between backend.
- * The trace message will be written to the _port_ object,
+ * The trace message will be written to the _file_ object,
  * which is an instance of the class +File+ (or at least +IO+).
  *
  * In case a block is given +untrace+ will be called automatically.
  */
 VALUE
-pgconn_trace( VALUE self, VALUE port)
+pgconn_trace( int argc, VALUE *argv, VALUE self)
 {
+    VALUE file;
 #ifdef HAVE_FUNC_RB_IO_STDIO_FILE
     rb_io_t *fp;
 #else
@@ -648,12 +649,16 @@ pgconn_trace( VALUE self, VALUE port)
     #define rb_io_stdio_file GetWriteFile
 #endif
 
-    if (TYPE( port) != T_FILE)
-        rb_raise( rb_eArgError, "Not an IO object: %s",
-                                StringValueCStr( port));
-    GetOpenFile( port, fp);
+    if (rb_scan_args( argc, argv, "01", &file) > 0) {
+        if (TYPE( file) != T_FILE)
+            rb_raise( rb_eArgError, "Not an IO object: %s",
+                                    StringValueCStr( file));
+    } else
+        file = rb_stdout;
+
+    GetOpenFile( file, fp);
     PQtrace( get_pgconn( self)->conn, rb_io_stdio_file( fp));
-    return RTEST( rb_block_given_p()) ?
+    return rb_block_given_p() ?
         rb_ensure( rb_yield, Qnil, pgconn_untrace, self) : Qnil;
 }
 
@@ -807,7 +812,7 @@ Init_pgsql_conn( void)
 
     rb_define_method( rb_cPgConn, "socket", pgconn_socket, 0);
 
-    rb_define_method( rb_cPgConn, "trace", pgconn_trace, 1);
+    rb_define_method( rb_cPgConn, "trace", pgconn_trace, -1);
     rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
@@ -843,30 +848,6 @@ static VALUE get_end( VALUE conn);
 static VALUE pgconn_copy_stdout( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_each_line( VALUE self);
-
-
-
-
-
-PGconn *
-get_pgconn( VALUE obj)
-{
-    struct pgconn_data *c;
-
-    Data_Get_Struct( obj, struct pgconn_data, c);
-    if (c->conn == NULL)
-        rb_raise( rb_ePgError, "not a valid connection");
-    return c->conn;
-}
-
-
-
-
-
-
-
-
-
 
 
 
