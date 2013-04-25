@@ -7,9 +7,15 @@
 
 #include "module.h"
 
+
+#ifdef HAVE_FUNC_RB_LOCALE_ENCODING
+    #define RUBY_ENCODING
+#endif
+
+
 struct pgconn_data {
     PGconn *conn;
-#ifdef TODO_RUBY19_ENCODING
+#ifdef RUBY_ENCODING
     rb_encoding *external;
     rb_encoding *internal;
 #endif

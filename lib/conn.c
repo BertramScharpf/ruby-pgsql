@@ -31,6 +31,12 @@ static VALUE pgconn_reset( VALUE self);
 
 static VALUE pgconn_client_encoding( VALUE self);
 static VALUE pgconn_set_client_encoding( VALUE self, VALUE str);
+#ifdef RUBY_ENCODING
+static VALUE pgconn_externalenc( VALUE self);
+static VALUE pgconn_set_externalenc( VALUE self, VALUE enc);
+static VALUE pgconn_internalenc( VALUE self);
+static VALUE pgconn_set_internalenc( VALUE self, VALUE enc);
+#endif
 
 static VALUE pgconn_protocol_version( VALUE self);
 static VALUE pgconn_server_version(   VALUE self);
@@ -105,12 +111,27 @@ get_pgconn( VALUE obj)
 
 VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str)
 {
-    str = rb_obj_as_string( str);
-#ifdef TODO_RUBY19_ENCODING
-    str = rb_encode_change_to( str, ptr->external);
+    VALUE r;
+
+    r = rb_obj_as_string( str);
+#ifdef RUBY_ENCODING
+    if (rb_enc_get( r) != ptr->external) {
+        r = rb_str_dup( r);
+        rb_enc_associate( r, ptr->external);
+        // TODO: This is not working.
+    }
 #endif
-    return str;
+    return r;
 }
+
+VALUE pgconn_debug( VALUE self, VALUE str)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    return pgconn_encode_in4out( c, str);
+}
+
 
 const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len)
 {
@@ -126,10 +147,10 @@ const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len)
 void
 pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str)
 {
-#ifdef TODO_RUBY19_ENCODING
-    rb_encode_force_to( str, ptr->external);
+#ifdef RUBY_ENCODING
+    ENCODING_SET( str, rb_enc_to_index( ptr->external));
     if (ptr->internal != NULL)
-        rb_encode_change_to( str, ptr->internal);
+        rb_enc_associate( str, ptr->internal);
 #endif
 }
 
@@ -169,6 +190,10 @@ pgconn_alloc( VALUE cls)
     r = Data_Make_Struct( cls, struct pgconn_data,
                             &pgconn_mark, &pgconn_free, c);
     c->conn    = NULL;
+#ifdef RUBY_ENCODING
+    c->external = rb_default_external_encoding();
+    c->internal = rb_default_internal_encoding();
+#endif
     c->command = Qnil;
     c->params  = Qnil;
     c->notice  = Qnil;
@@ -281,11 +306,6 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     c->conn = PQconnectdbParams( keywords, values, 1);
     if (PQstatus( c->conn) == CONNECTION_BAD)
         rb_raise( rb_ePgConnFailed, PQerrorMessage( c->conn));
-
-#ifdef TODO_RUBY19_ENCODING
-    c->external = rb_default_external_encoding();
-    c->internal = rb_default_internal_encoding();
-#endif
 
     return self;
 }
@@ -417,7 +437,7 @@ pgconn_client_encoding( VALUE self)
 
 /*
  * call-seq:
- *    conn.set_client_encoding( encoding)
+ *    conn.set_client_encoding( encoding)   ->  nil
  *
  * Sets the client encoding to the +encoding+ string.
  */
@@ -431,6 +451,69 @@ pgconn_set_client_encoding( VALUE self, VALUE str)
 }
 
 
+#ifdef RUBY_ENCODING
+
+/*
+ * call-seq:
+ *    conn.external_encoding   ->  enc
+ *
+ * Return the external encoding.
+ */
+VALUE
+pgconn_externalenc( VALUE self)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    return rb_enc_from_encoding( c->external);
+}
+
+/*
+ * call-seq:
+ *    conn.external_encoding = enc
+ *
+ * Set the external encoding.
+ */
+VALUE
+pgconn_set_externalenc( VALUE self, VALUE enc)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    c->external = NIL_P( enc) ? NULL : rb_to_encoding( enc);
+}
+
+/*
+ * call-seq:
+ *    conn.internal_encoding   ->  enc
+ *
+ * Return the internal encoding.
+ */
+VALUE
+pgconn_internalenc( VALUE self)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    return rb_enc_from_encoding( c->internal);
+}
+
+/*
+ * call-seq:
+ *    conn.internal_encoding = enc
+ *
+ * Set the internal encoding.
+ */
+VALUE
+pgconn_set_internalenc( VALUE self, VALUE enc)
+{
+    struct pgconn_data *c;
+
+    Data_Get_Struct( self, struct pgconn_data, c);
+    c->internal = NIL_P( enc) ? NULL : rb_to_encoding( enc);
+}
+
+#endif
 
 
 
@@ -770,11 +853,11 @@ Init_pgsql_conn( void)
 
     rb_define_method( rb_cPgConn, "client_encoding", pgconn_client_encoding, 0);
     rb_define_method( rb_cPgConn, "set_client_encoding", pgconn_set_client_encoding, 1);
-#ifdef TODO_RUBY19_ENCODING
+#ifdef RUBY_ENCODING
     rb_define_method( rb_cPgConn, "external_encoding",  pgconn_externalenc, 0);
-    rb_define_method( rb_cPgConn, "external_encoding=", pgconn_set_externalenc, 0);
+    rb_define_method( rb_cPgConn, "external_encoding=", pgconn_set_externalenc, 1);
     rb_define_method( rb_cPgConn, "internal_encoding",  pgconn_internalenc, 0);
-    rb_define_method( rb_cPgConn, "internal_encoding=", pgconn_set_internalenc, 0);
+    rb_define_method( rb_cPgConn, "internal_encoding=", pgconn_set_internalenc, 1);
 #endif
 
     rb_define_method( rb_cPgConn, "protocol_version", pgconn_protocol_version, 0);
@@ -802,6 +885,7 @@ Init_pgsql_conn( void)
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
 
+    rb_define_method( rb_cPgConn, "xxx", pgconn_debug, 1);
 
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();

@@ -32,6 +32,7 @@ Autorake.configure {
 
   have_func "rb_errinfo"
   have_func "rb_io_stdio_file"
+  have_func "rb_locale_encoding"
 
 }
 
