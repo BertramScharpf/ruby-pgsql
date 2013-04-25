@@ -5,19 +5,7 @@
 
 #include "conn.h"
 
-#if defined( HAVE_HEADER_ST_H)
-    #include <st.h>
-#endif
 
-
-#ifdef TODO_DONE
-#include "result.h"
-
-#ifdef HAVE_HEADER_LIBPQ_LIBPQ_FS_H
-    #include <libpq/libpq-fs.h>
-#endif
-
-#endif
 
 extern void pg_check_conninvalid( struct pgconn_data *c);
 
