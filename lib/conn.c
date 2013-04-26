@@ -16,7 +16,7 @@ extern void  pgconn_clear( struct pgconn_data *c);
 extern struct pgconn_data *get_pgconn( VALUE obj);
 static VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str);
 extern const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len);
-static void  pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str);
+static VALUE pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str);
 extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 extern VALUE pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len);
 static VALUE pgconn_alloc( VALUE cls);
@@ -115,23 +115,10 @@ VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str)
 
     r = rb_obj_as_string( str);
 #ifdef RUBY_ENCODING
-    if (rb_enc_get( r) != ptr->external) {
-        r = rb_str_dup( r);
-        rb_enc_associate( r, ptr->external);
-        // TODO: This is not working.
-    }
+    rb_str_conv_enc( r, rb_enc_get( r), ptr->external);
 #endif
     return r;
 }
-
-VALUE pgconn_debug( VALUE self, VALUE str)
-{
-    struct pgconn_data *c;
-
-    Data_Get_Struct( self, struct pgconn_data, c);
-    return pgconn_encode_in4out( c, str);
-}
-
 
 const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len)
 {
@@ -144,14 +131,14 @@ const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len)
 }
 
 
-void
+VALUE
 pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str)
 {
 #ifdef RUBY_ENCODING
-    ENCODING_SET( str, rb_enc_to_index( ptr->external));
-    if (ptr->internal != NULL)
-        rb_enc_associate( str, ptr->internal);
+    rb_enc_associate( str, ptr->external);
+    str = rb_str_conv_enc( str, rb_enc_get( str), ptr->internal);
 #endif
+    return str;
 }
 
 
@@ -884,8 +871,6 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
 
     rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
-
-    rb_define_method( rb_cPgConn, "xxx", pgconn_debug, 1);
 
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();
