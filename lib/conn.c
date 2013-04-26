@@ -6,6 +6,10 @@
 #include "conn.h"
 
 
+#if defined( HAVE_HEADER_ST_H)
+    #include <st.h>
+#endif
+
 
 extern void pg_check_conninvalid( struct pgconn_data *c);
 
