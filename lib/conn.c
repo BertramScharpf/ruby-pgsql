@@ -111,13 +111,11 @@ get_pgconn( VALUE obj)
 
 VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str)
 {
-    VALUE r;
-
-    r = rb_obj_as_string( str);
+    str = rb_obj_as_string( str);
 #ifdef RUBY_ENCODING
-    rb_str_conv_enc( r, rb_enc_get( r), ptr->external);
+    str = rb_str_conv_enc( str, rb_enc_get( str), ptr->external);
 #endif
-    return r;
+    return str;
 }
 
 const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len)

@@ -10,9 +10,12 @@ extern VALUE pg_currency_class( void);
 
 static VALUE pgconn_format( VALUE self, VALUE obj);
 
-static VALUE pgconn_escape_bytea(   VALUE self, VALUE obj);
+static VALUE pgconn_escape_bytea(   VALUE self, VALUE str);
+#ifdef RUBY_ENCODING
+static VALUE pgconn_unescape_bytea( int argc, VALUE *argv, VALUE self);
+#else
 static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
-static VALUE string_unescape_bytea( const char *escaped);
+#endif
 
 extern VALUE pgconn_stringize( VALUE self, VALUE obj);
 extern VALUE pgconn_stringize_line( VALUE self, VALUE ary);
@@ -21,8 +24,8 @@ static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
 static VALUE gsub_escape_i( VALUE c, VALUE arg);
 
-static VALUE pgconn_quote_bytea( VALUE self, VALUE obj);
-static VALUE pgconn_quote( VALUE self, VALUE value);
+static VALUE pgconn_quote_bytea( VALUE self, VALUE str);
+static VALUE pgconn_quote( VALUE self, VALUE obj);
 static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
 static VALUE quote_string( VALUE conn, VALUE str);
 static VALUE quote_array( VALUE self, VALUE result, VALUE ary);
@@ -102,6 +105,9 @@ pgconn_format( VALUE self, VALUE obj)
  * If you execute an +INSERT+ statement and mention you object in the statement
  * string you should call Conn.quote_bytea().
  *
+ * Note that the encoding does not have any influence. The bytes will bewritten
+ * as if <code>String#each_byte</code> would have been called.
+ *
  * See the PostgreSQL documentation on PQescapeByteaConn
  * [http://www.postgresql.org/docs/current/interactive/libpq-exec.html#LIBPQ-PQESCAPEBYTEACONN]
  * for more information.
@@ -110,61 +116,73 @@ VALUE
 pgconn_escape_bytea( VALUE self, VALUE str)
 {
     unsigned char *s;
-    size_t l;
-    char nib[ 3];
+    int l;
     VALUE ret;
 
-    StringValue( str);
-    ret = rb_str_buf_new2( "\\x");
-    for (s = (unsigned char *) RSTRING_PTR( str), l = RSTRING_LEN( str); l;
-                            ++s, --l) {
-        sprintf( nib, "%02x", (int) *s);
-        rb_str_buf_cat( ret, nib, 2);
-    }
+    str = rb_obj_as_string( str);
+    s = PQescapeByteaConn( get_pgconn( self)->conn,
+            (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
+    ret = rb_str_new( (char *) s, l - 1);
+    PQfreemem( s);
+
     OBJ_INFECT( ret, str);
     return ret;
 }
 
 /*
  * call-seq:
- *   conn.unescape_bytea( str)  -> str
+ *   conn.unescape_bytea( str, enc = nil)  -> str
+ *   conn.unescape_bytea( str)             -> str    (Ruby 1.8)
  *
- * Converts an escaped string representation of binary data into binary data.
+ * Converts an escaped string into binary data.
+ *
  * Example:
  *
  *   Pg::Conn.unescape_bytea "\\x616263"   # =>  "abc"
  *
- * Normally you will not need this because Pg::Result's methods will convert a
- * return value automatically if the field type was a +bytea+.
+ * You will need this because Pg::Result will not convert a return value
+ * automatically if the field type was a +bytea+.
+ *
+ * If +enc+ is given, the result will be associated with this encoding.
+ * A conversion will not be tried. Probably, if dealing with encodings the
+ * encoding will be stored in the next column.
  *
  * See the PostgreSQL documentation on PQunescapeBytea
  * [http://www.postgresql.org/docs/current/interactive/libpq-exec.html#LIBPQ-PQUNESCAPEBYTEA]
  * for more information.
  */
+#ifdef RUBY_ENCODING
 VALUE
-pgconn_unescape_bytea( VALUE self, VALUE str)
-{
-    VALUE ret;
-
-    StringValue( str);
-    ret = string_unescape_bytea( RSTRING_PTR( str));
-    OBJ_INFECT( ret, str);
-    return ret;
-}
-
+pgconn_unescape_bytea( int argc, VALUE *argv, VALUE self)
+#else
 VALUE
-string_unescape_bytea( const char *escaped)
+pgconn_unescape_bytea( VALUE self, VALUE obj)
+#endif
 {
+#ifdef RUBY_ENCODING
+    VALUE obj, enc;
+#endif
     unsigned char *s;
     size_t l;
     VALUE ret;
 
-    s = PQunescapeBytea( (unsigned char *) escaped, &l);
+#ifdef RUBY_ENCODING
+    rb_scan_args( argc, argv, "11", &obj, &enc);
+#endif
+
+    StringValue( obj);
+    s = PQunescapeBytea( (unsigned char *) RSTRING_PTR( obj), &l);
     ret = rb_str_new( (char *) s, l);
     PQfreemem( s);
+
+#ifdef RUBY_ENCODING
+    if (!NIL_P( enc))
+        rb_enc_associate( ret, rb_to_encoding( enc));
+#endif
+
+    OBJ_INFECT( ret, obj);
     return ret;
 }
-
 
 
 /*
@@ -172,10 +190,10 @@ string_unescape_bytea( const char *escaped)
  *   conn.stringize( obj) -> str
  *
  * This methods makes a string out of everything.  Numbers, booleans, +nil+,
- * date and time values, and even arrays will be written a string as PostgreSQL
- * accepts constants.  You may pass the result as a field after a +COPY+
- * statement. This will be called internally for the parameters to +exec+,
- * +query+ etc.
+ * date and time values, and even arrays will be written as string the way
+ * PostgreSQL accepts constants.  You may pass the result as a field after a
+ * +COPY+ statement. This will be called internally for the parameters to
+ * +exec+, +query+ etc.
  *
  * Any other objects will be checked whether they have a method named
  * +to_postgres+.  If that doesn't exist the object will be converted by
@@ -184,7 +202,7 @@ string_unescape_bytea( const char *escaped)
  * If you are quoting into a SQL statement please don't do something like
  * <code>"insert into ... (E'#{conn.stringize obj}', ...);"</code>.  Use
  * +Conn.quote+ instead that will put the appropriate quoting characters around
- * its string.
+ * its strings.
  *
  * If you like to pass a +bytea+ you have to escape the string yourself.
  * This library cannot decide itself whether a String object is meant as a
@@ -416,15 +434,15 @@ gsub_escape_i( VALUE c, VALUE arg)
 VALUE
 pgconn_quote_bytea( VALUE self, VALUE str)
 {
-    char *t;
+    unsigned char *t;
     size_t l;
     VALUE ret;
 
     StringValue( str);
-    t = (char *) PQescapeByteaConn( get_pgconn( self)->conn,
+    t = PQescapeByteaConn( get_pgconn( self)->conn,
             (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
-    ret = rb_str_buf_new2( " E'");
-    rb_str_buf_cat( ret, t, l - 1);
+    ret = rb_str_buf_new2( "E'");
+    rb_str_buf_cat( ret, (char *) t, l - 1);
     rb_str_buf_cat2( ret, "'::bytea");
     PQfreemem( t);
     OBJ_INFECT( ret, str);
@@ -630,9 +648,13 @@ Init_pgsql_conn_quote( void)
     rb_define_method( rb_cPgConn, "format", pgconn_format, 1);
 
     rb_define_method( rb_cPgConn, "escape_bytea", pgconn_escape_bytea, 1);
-    rb_define_singleton_method( rb_cPgConn, "escape_bytea", pgconn_escape_bytea, 1);
+#ifdef RUBY_ENCODING
+    rb_define_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, -1);
+    rb_define_singleton_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, -1);
+#else
     rb_define_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, 1);
     rb_define_singleton_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, 1);
+#endif
 
     rb_define_method( rb_cPgConn, "stringize", pgconn_stringize, 1);
     rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);

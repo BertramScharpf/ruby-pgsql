@@ -605,19 +605,10 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
     case FLOAT4OID:
         return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
     case BOOLOID:
-        return strchr( "tTyY", *string) != NULL ? Qtrue : Qfalse;
+        return *string == 't' ? Qtrue : Qfalse;
+        /* strchr( "tTyY", *string) != NULL */
     case BYTEAOID:
-        {
-            unsigned char *s;
-            size_t l;
-            VALUE ret;
-
-            s = PQunescapeBytea( (unsigned char *) string, &l);
-            ret = pgconn_mkstringn( r->conn, (char *) s, l);
-            PQfreemem( s);
-            return ret;
-        }
-        return ret;
+        return rb_str_new2( string);
     default:
         break;
     }
