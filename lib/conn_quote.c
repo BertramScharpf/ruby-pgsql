@@ -19,12 +19,12 @@ static VALUE pgconn_unescape_bytea( VALUE self, VALUE obj);
 
 extern VALUE pgconn_stringize( VALUE self, VALUE obj);
 extern VALUE pgconn_stringize_line( VALUE self, VALUE ary);
+extern VALUE pgconn_for_copy( VALUE self, VALUE str);
 static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
 static VALUE gsub_escape_i( VALUE c, VALUE arg);
 
-static VALUE pgconn_quote_bytea( VALUE self, VALUE str);
 static VALUE pgconn_quote( VALUE self, VALUE obj);
 static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
 static VALUE quote_string( VALUE conn, VALUE str);
@@ -43,10 +43,11 @@ static ID id_format;
 static ID id_iso8601;
 static ID id_raw;
 static ID id_to_postgres;
-static ID id_gsub_bang;
+static ID id_gsub;
 static ID id_currency;
 
-static const char *str_NULL = "NULL";
+static VALUE pg_string_null;
+static VALUE pg_string_bsl_N;
 static VALUE pg_escape_regex;
 
 
@@ -54,8 +55,11 @@ static VALUE pg_escape_regex;
 VALUE
 pg_currency_class( void)
 {
-    if (NIL_P( rb_cCurrency) && rb_const_defined( rb_cObject, id_currency))
-        rb_cCurrency = rb_const_get( rb_cObject, id_currency);
+    if (NIL_P( rb_cCurrency) && id_currency) {
+        if (rb_const_defined( rb_cObject, id_currency))
+            rb_cCurrency = rb_const_get( rb_cObject, id_currency);
+        id_currency = 0;
+    }
     return rb_cCurrency;
 }
 
@@ -119,12 +123,11 @@ pgconn_escape_bytea( VALUE self, VALUE str)
     int l;
     VALUE ret;
 
-    str = rb_obj_as_string( str);
+    StringValue( str);
     s = PQescapeByteaConn( get_pgconn( self)->conn,
             (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
     ret = rb_str_new( (char *) s, l - 1);
     PQfreemem( s);
-
     OBJ_INFECT( ret, str);
     return ret;
 }
@@ -222,7 +225,7 @@ pgconn_stringize( VALUE self, VALUE obj)
             break;
 
         case T_NIL:
-            result = rb_str_new2( str_NULL);
+            result = pg_string_null;
             break;
 
         case T_TRUE:
@@ -289,28 +292,38 @@ pgconn_stringize_line( VALUE self, VALUE ary)
     a = rb_check_convert_type( ary, T_ARRAY, "Array", "to_ary");
     if (NIL_P(a))
         rb_raise( rb_eArgError, "Give me an array.");
-    if (NIL_P( pg_escape_regex)) {
-        pg_escape_regex = rb_reg_new( "([\\b\\f\\n\\r\\t\\v\\\\])", 18, 0);
-        rb_global_variable( &pg_escape_regex);
-    }
     ret = rb_str_new( NULL, 0);
     for (l = RARRAY_LEN( a), p = RARRAY_PTR( a); l; ++p) {
-        if (NIL_P( *p))
-            rb_str_cat( ret, "\\N", 2);
-        else {
-            s = pgconn_stringize( self, *p);
-            rb_block_call( s, id_gsub_bang, 1, &pg_escape_regex,
-                                                    gsub_escape_i, Qnil);
-            rb_str_cat( ret, RSTRING_PTR( s), RSTRING_LEN( s));
-        }
-        if (--l > 0)
-            rb_str_cat( ret, "\t", 1);
-        else
-            rb_str_cat( ret, "\n", 1);
+        rb_str_concat( ret, pgconn_for_copy( self, *p));
+        rb_str_cat( ret, (--l > 0 ? "\t" : "\n"), 1);
     }
     return ret;
 }
 
+/*
+ * call-seq:
+ *    conn.for_copy( obj)  ->  str
+ *
+ * Quote for +COPY+ expects. +nil+ will become "\\N".
+ *
+ * Then, tabs, newlines, and backslashes will be escaped.
+ */
+VALUE
+pgconn_for_copy( VALUE self, VALUE obj)
+{
+    VALUE ret;
+
+    if (NIL_P( obj))
+        ret = pg_string_bsl_N;
+    else {
+        ret = pgconn_stringize( self, obj);
+        if (NIL_P( pg_escape_regex))
+            pg_escape_regex = rb_reg_new( "([\\b\\f\\n\\r\\t\\v\\\\])", 18, 0);
+        if (RTEST( rb_reg_match( pg_escape_regex, ret)))
+            ret = rb_block_call( ret, id_gsub, 1, &pg_escape_regex, gsub_escape_i, Qnil);
+    }
+    return ret;
+}
 
 
 int
@@ -319,7 +332,7 @@ needs_dquote_string( VALUE str)
     char *p;
     long l;
 
-    if (strcmp( RSTRING_PTR( str), str_NULL) == 0)
+    if (rb_str_cmp( str, pg_string_null) == 0)
         return 1;
     l = RSTRING_LEN( str);
     if (l == 0)
@@ -356,6 +369,7 @@ dquote_string( VALUE str)
             p = q, l = m;
         }
         rb_str_buf_cat2( ret, "\"");
+        rb_enc_associate( ret, rb_enc_get( str));
     }
     return ret;
 }
@@ -413,44 +427,6 @@ gsub_escape_i( VALUE c, VALUE arg)
 
 /*
  * call-seq:
- *   conn.quote_bytea( str)  -> str
- *
- * Converts a string of binary data into an escaped version.
- * Example:
- *
- *   conn.quote_bytea "abc"    # => "E'\\\\x616263'::bytea"
- *                             # (Two backslashes, then an 'x'.)
- *
- * This is what you need, when you execute an +INSERT+ statement and mention
- * you object in the statement string.
- *
- * If you pass your object as a Conn#exec parameter, as a +COPY+ input line or
- * as a subject to +Conn#quote+-ing you should call Conn.escape_bytea().
- *
- * See the PostgreSQL documentation on PQescapeByteaConn
- * [http://www.postgresql.org/docs/current/interactive/libpq-exec.html#LIBPQ-PQESCAPEBYTEACONN]
- * for more information.
- */
-VALUE
-pgconn_quote_bytea( VALUE self, VALUE str)
-{
-    unsigned char *t;
-    size_t l;
-    VALUE ret;
-
-    StringValue( str);
-    t = PQescapeByteaConn( get_pgconn( self)->conn,
-            (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
-    ret = rb_str_buf_new2( "E'");
-    rb_str_buf_cat( ret, (char *) t, l - 1);
-    rb_str_buf_cat2( ret, "'::bytea");
-    PQfreemem( t);
-    OBJ_INFECT( ret, str);
-    return ret;
-}
-
-/*
- * call-seq:
  *   conn.quote( obj) -> str
  *
  * This methods makes a PostgreSQL constant out of everything.  You may mention
@@ -474,7 +450,7 @@ pgconn_quote_bytea( VALUE self, VALUE str)
 VALUE
 pgconn_quote( VALUE self, VALUE obj)
 {
-    VALUE o, result;
+    VALUE o, res;
 
     o = rb_funcall( self, id_format, 1, obj);
     if (!NIL_P( o))
@@ -483,7 +459,7 @@ pgconn_quote( VALUE self, VALUE obj)
         case T_STRING:
             return quote_string( self, obj);
         case T_NIL:
-            return rb_str_new2( str_NULL);
+            return pg_string_null;
         case T_TRUE:
         case T_FALSE:
         case T_FIXNUM:
@@ -493,51 +469,51 @@ pgconn_quote( VALUE self, VALUE obj)
             return rb_obj_as_string( obj);
 
         case T_ARRAY:
-            result = rb_str_buf_new2( "ARRAY[");
-            quote_array( self, result, obj);
-            rb_str_buf_cat2( result, "]");
+            res = rb_str_buf_new2( "ARRAY[");
+            quote_array( self, res, obj);
+            rb_str_buf_cat2( res, "]");
             break;
 
         default:
             if (rb_obj_is_kind_of( obj, rb_cNumeric))
-                result = rb_obj_as_string( obj);
+                res = rb_obj_as_string( obj);
             else {
                 VALUE co;
                 char *type;
 
                 co = CLASS_OF( obj);
                 if        (co == rb_cTime) {
-                    result = rb_funcall( obj, id_iso8601, 0);
+                    res = rb_funcall( obj, id_iso8601, 0);
                     type = "timestamptz";
                 } else if (co == rb_cDate) {
-                    result = rb_obj_as_string( obj);
+                    res = rb_obj_as_string( obj);
                     type = "date";
                 } else if (co == rb_cDateTime) {
-                    result = rb_obj_as_string( obj);
+                    res = rb_obj_as_string( obj);
                     type = "timestamptz";
                 } else if (co == pg_currency_class() &&
                                     rb_respond_to( obj, id_raw)) {
-                    result = rb_funcall( obj, id_raw, 0);
-                    StringValue( result);
+                    res = rb_funcall( obj, id_raw, 0);
+                    StringValue( res);
                     type = "money";
                 } else if (rb_respond_to( obj, id_to_postgres)) {
-                    result = rb_funcall( obj, id_to_postgres, 0);
-                    StringValue( result);
+                    res = rb_funcall( obj, id_to_postgres, 0);
+                    StringValue( res);
                     type = NULL;
                 } else {
-                    result = rb_obj_as_string( obj);
+                    res = rb_obj_as_string( obj);
                     type = "unknown";
                 }
-                result = quote_string( self, result);
+                res = quote_string( self, res);
                 if (type != NULL) {
-                    rb_str_buf_cat2( result, "::");
-                    rb_str_buf_cat2( result, type);
+                    rb_str_buf_cat2( res, "::");
+                    rb_str_buf_cat2( res, type);
                 }
-                OBJ_INFECT( result, obj);
+                OBJ_INFECT( res, obj);
             }
             break;
     }
-    return result;
+    return res;
 }
 
 /*
@@ -563,13 +539,14 @@ VALUE
 quote_string( VALUE conn, VALUE str)
 {
     char *p;
-    VALUE result;
+    VALUE res;
 
     p = PQescapeLiteral( get_pgconn( conn)->conn, RSTRING_PTR( str), RSTRING_LEN( str));
-    result = rb_str_new2( p);
+    res = rb_str_new2( p);
     PQfreemem( p);
-    OBJ_INFECT( result, str);
-    return result;
+    rb_enc_associate( res, rb_enc_get( str));
+    OBJ_INFECT( res, str);
+    return res;
 }
 
 VALUE
@@ -624,14 +601,15 @@ VALUE
 pgconn_quote_identifier( VALUE self, VALUE str)
 {
     char *p;
-    VALUE result;
+    VALUE res;
 
     StringValue( str);
     p = PQescapeIdentifier( get_pgconn( self)->conn, RSTRING_PTR( str), RSTRING_LEN( str));
-    result = rb_str_new2( p);
+    res = rb_str_new2( p);
     PQfreemem( p);
-    OBJ_INFECT( result, str);
-    return result;
+    rb_enc_associate( res, rb_enc_get( str));
+    OBJ_INFECT( res, str);
+    return res;
 }
 
 
@@ -658,8 +636,8 @@ Init_pgsql_conn_quote( void)
 
     rb_define_method( rb_cPgConn, "stringize", pgconn_stringize, 1);
     rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);
+    rb_define_method( rb_cPgConn, "for_copy", pgconn_for_copy, 1);
 
-    rb_define_method( rb_cPgConn, "quote_bytea", pgconn_quote_bytea, 1);
     rb_define_method( rb_cPgConn, "quote", pgconn_quote, 1);
     rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
     rb_define_alias( rb_cPgConn, "q", "quote_all");
@@ -671,10 +649,12 @@ Init_pgsql_conn_quote( void)
     id_iso8601     = rb_intern( "iso8601");
     id_raw         = rb_intern( "raw");
     id_to_postgres = rb_intern( "to_postgres");
-    id_gsub_bang   = rb_intern( "gsub!");
+    id_gsub        = rb_intern( "gsub");
 
     id_currency    = rb_intern( "Currency");
 
+    pg_string_null  = rb_str_new2( "NULL");
+    pg_string_bsl_N = rb_str_new2( "\\N");
     pg_escape_regex = Qnil;
 }
 
