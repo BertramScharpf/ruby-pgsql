@@ -20,7 +20,8 @@ VALUE rb_ePgError;
  *
  * The module to enclose everything.
  *
- * See the Pg::Conn class for information on opening a database.
+ * See the Pg::Conn class for information on how to open a database
+ * connection.
  */
 
 /********************************************************************

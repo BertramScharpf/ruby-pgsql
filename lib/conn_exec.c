@@ -421,7 +421,7 @@ pgconn_select_values( int argc, VALUE *argv, VALUE self)
  *    conn.get_notify()  -> ary or nil
  *    conn.get_notify() { |rel,pid,msg| .... } -> obj
  *
- * Returns a notifier. If there is no unprocessed notifier, it returns +nil+.
+ * Returns a notifier.  If there is no unprocessed notifier, it returns +nil+.
  */
 VALUE
 pgconn_get_notify( VALUE self)
@@ -511,7 +511,7 @@ yield_transaction( VALUE self)
 
 /*
  * call-seq:
- *    conn.subtransaction( nam, *args) { |conn,sp| ... }
+ *    conn.subtransaction( name, *args) { |conn,sp| ... }
  *
  * Open and close a transaction savepoint.  The savepoints name +nam+ may
  * contain % directives that will be expanded by +args+.
@@ -600,7 +600,7 @@ pgconn_transaction_status( VALUE self)
  * call-seq:
  *    conn.copy_stdin( sql, *bind_values) { |result| ... }   ->  nil
  *
- * Write lines into a +COPY+ command. See +stringize_line+ for how to build
+ * Write lines into a +COPY+ command.  See +stringize_line+ for how to build
  * standard lines.
  *
  *   conn.copy_stdin "copy t from stdin;" do
@@ -661,11 +661,11 @@ put_end( VALUE self)
  * Sends the string to the backend server.
  * You have to open the stream with a +COPY+ command using +copy_stdin+.
  *
- * If +str+ doesn't end in a newline, one is appended. If the argument
+ * If +str+ doesn't end in a newline, one is appended.  If the argument
  * is +ary+, a line will be built using +stringize_line+.
  *
- * If the connection is in nonblocking mode the block will be called
- * and its value will be returned.
+ * If the connection is in nonblocking mode and no data could be sent
+ * the closure will be called and its value will be returned.
  */
 VALUE
 pgconn_putline( VALUE self, VALUE arg)
@@ -770,7 +770,7 @@ get_end( VALUE self)
  * If async is +true+ and no data is available then the block will be called
  * and its value will be returned.
  *
- * Call this method inside a block passed to +copy_stdout+. See
+ * Call this method inside a block passed to +copy_stdout+.  See
  * there for an example.
  */
 VALUE
@@ -806,7 +806,7 @@ pgconn_getline( int argc, VALUE *argv, VALUE self)
  *
  * Reads line after line from a +COPY+ command.
  *
- * Call this method inside a block passed to +copy_stdout+. See
+ * Call this method inside a block passed to +copy_stdout+.  See
  * there for an example.
  */
 VALUE
@@ -845,13 +845,17 @@ pgconn_each_line( VALUE self)
  *
  * Document-class: Pg::Conn::Transaction
  *
- * Nested transaction blocks. Use savepoints.
+ * Nested transaction blocks.  Use savepoints.
  */
 
 
 void
 Init_pgsql_conn_exec( void)
 {
+
+#ifdef RDOC_NEEDS_THIS
+    rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
+#endif
 
 #define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
     rb_ePgConnExec  = ERR_DEF( "ExecError");

@@ -251,7 +251,7 @@ pgreserror_hint( VALUE self)
  * call-seq:
  *   pgqe.diag( field) => string
  *
- * Error diagnose message. Give one of the PG_DIAG_* constants
+ * Error diagnose message.  Give one of the PG_DIAG_* constants
  * to specify a field.
  *
  */
@@ -758,6 +758,7 @@ pgresult_getisnull( VALUE self, VALUE row, VALUE col)
  * <i>field_name</i>.
  *
  * Equivalent to (but faster than) either of:
+ *
  *    res.row[<i>row</i>][ res.fieldnum(<i>field_name</i>) ]
  *    res.value( <i>row</i>, res.fieldnum(<i>field_name</i>) )
  *

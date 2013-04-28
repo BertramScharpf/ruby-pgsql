@@ -743,7 +743,7 @@ pgconn_untrace( VALUE self)
  * This method yields a PG::Result::Error object in case a nonfatal exception
  * was raised.
  *
- * Here's an example:
+ * == Example
  *
  *   conn.exec <<-EOT
  *     create or replace function noise() returns void as $$
@@ -811,7 +811,7 @@ notice_receiver( void *self, const PGresult *result)
  *
  * The class to access a PostgreSQL database.
  *
- * For example, to send a query to the database on the localhost:
+ * == Example
  *
  *    require "pgsql"
  *    conn = Pg::Conn.open :dbname => "test1"
@@ -824,6 +824,10 @@ notice_receiver( void *self, const PGresult *result)
 void
 Init_pgsql_conn( void)
 {
+#ifdef RDOC_NEEDS_THIS
+    rb_mPg = rb_define_module( "Pg");
+#endif
+
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
 #define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)

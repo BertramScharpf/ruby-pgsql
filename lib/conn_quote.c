@@ -75,7 +75,7 @@ pg_currency_class( void)
  *
  * The Object won't be replaced if this method returns +nil+.
  *
- * = Example
+ * == Example
  *
  *   class MyConn < Pg::Conn
  *     def format obj
@@ -98,7 +98,8 @@ pgconn_format( VALUE self, VALUE obj)
  *   conn.escape_bytea( str)  -> str
  *
  * Converts a string of binary data into an escaped version.
- * Example:
+ *
+ * == Example
  *
  *   conn.escape_bytea "abc"    # => "\\x616263"
  *                              # (One backslash, then an 'x'.)
@@ -109,7 +110,7 @@ pgconn_format( VALUE self, VALUE obj)
  * If you execute an +INSERT+ statement and mention you object in the statement
  * string you should call Conn.quote_bytea().
  *
- * Note that the encoding does not have any influence. The bytes will bewritten
+ * Note that the encoding does not have any influence.  The bytes will bewritten
  * as if <code>String#each_byte</code> would have been called.
  *
  * See the PostgreSQL documentation on PQescapeByteaConn
@@ -139,7 +140,7 @@ pgconn_escape_bytea( VALUE self, VALUE str)
  *
  * Converts an escaped string into binary data.
  *
- * Example:
+ * == Example
  *
  *   Pg::Conn.unescape_bytea "\\x616263"   # =>  "abc"
  *
@@ -147,7 +148,7 @@ pgconn_escape_bytea( VALUE self, VALUE str)
  * automatically if the field type was a +bytea+.
  *
  * If +enc+ is given, the result will be associated with this encoding.
- * A conversion will not be tried. Probably, if dealing with encodings the
+ * A conversion will not be tried.  Probably, if dealing with encodings the
  * encoding will be stored in the next column.
  *
  * See the PostgreSQL documentation on PQunescapeBytea
@@ -195,7 +196,7 @@ pgconn_unescape_bytea( VALUE self, VALUE obj)
  * This methods makes a string out of everything.  Numbers, booleans, +nil+,
  * date and time values, and even arrays will be written as string the way
  * PostgreSQL accepts constants.  You may pass the result as a field after a
- * +COPY+ statement. This will be called internally for the parameters to
+ * +COPY+ statement.  This will be called internally for the parameters to
  * +exec+, +query+ etc.
  *
  * Any other objects will be checked whether they have a method named
@@ -278,7 +279,7 @@ pgconn_stringize( VALUE self, VALUE obj)
  * call-seq:
  *    conn.stringize_line( ary)  ->  str
  *
- * Quote a line the standard way that +COPY+ expects. Tabs, newlines, and
+ * Quote a line the standard way that +COPY+ expects.  Tabs, newlines, and
  * backslashes will be escaped, +nil+ will become "\\N".
  */
 VALUE
@@ -622,6 +623,10 @@ Init_pgsql_conn_quote( void)
     rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
     rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
     rb_cCurrency   = Qnil;
+
+#ifdef RDOC_NEEDS_THIS
+    rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
+#endif
 
     rb_define_method( rb_cPgConn, "format", pgconn_format, 1);
 
