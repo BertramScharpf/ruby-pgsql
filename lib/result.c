@@ -5,80 +5,78 @@
 
 #include "result.h"
 
-#include "row.h"
-#include "conn.h"
-
-#if defined( HAVE_HEADER_ST_H)
-    #include <st.h>
-#elif defined( HAVE_HEADER_RUBY_ST_H)
-    #include <ruby/st.h>
-#endif
-#if defined( HAVE_HEADER_INTERN_H)
-    #include <intern.h>
-#elif defined( HAVE_HEADER_RUBY_INTERN_H)
-    #include <ruby/intern.h>
-#endif
+#include "conn_quote.h"
 
 
-VALUE rb_cBigDecimal;
-VALUE rb_cDate;
-VALUE rb_cDateTime;
-VALUE rb_cCurrency;
+extern void pg_checkresult( PGresult *result, struct pgconn_data *conn);
+static void pgreserr_mark( struct pgreserr_data *ptr);
+static void pgreserr_free( struct pgreserr_data *ptr);
+extern void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
+extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
 
-static ID id_parse;
-static ID id_index;
-static ID id_currency;
+static VALUE pgreserror_command( VALUE self);
+static VALUE pgreserror_params(  VALUE self);
 
-static int  get_field_number( PGresult *result, VALUE index);
-static int  get_tuple_number( PGresult *result, VALUE index);
-
-static VALUE pgresult_alloc( VALUE cls);
-static VALUE pgresult_status( VALUE obj);
-static VALUE pgresult_aref( int argc, VALUE *argv, VALUE obj);
-static VALUE pgresult_fields( VALUE obj);
-static VALUE pgresult_num_tuples( VALUE obj);
-static VALUE pgresult_num_fields( VALUE obj);
-static VALUE pgresult_fieldname( VALUE obj, VALUE index);
-static VALUE pgresult_fieldnum( VALUE obj, VALUE name);
-static VALUE pgresult_type( VALUE obj, VALUE index);
-static VALUE pgresult_size( VALUE obj, VALUE index);
-static VALUE pgresult_getvalue( VALUE obj, VALUE tup_num, VALUE field_num);
-static VALUE pgresult_getvalue_byname( VALUE obj, VALUE tup_num,
-                                                          VALUE field_name);
-static VALUE pgresult_getlength( VALUE obj, VALUE tup_num, VALUE field_num);
-static VALUE pgresult_getisnull( VALUE obj, VALUE tup_num, VALUE field_num);
-static VALUE pgresult_cmdtuples( VALUE obj);
-static VALUE pgresult_cmdstatus( VALUE obj);
-static VALUE pgresult_oid( VALUE obj);
-
-
-static VALUE pgreserror_status( VALUE obj);
-static VALUE pgreserror_sqlst( VALUE self);
+static VALUE pgreserror_status(  VALUE self);
+static VALUE pgreserror_sqlst(   VALUE self);
 static VALUE pgreserror_primary( VALUE self);
-static VALUE pgreserror_detail( VALUE self);
-static VALUE pgreserror_hint( VALUE self);
+static VALUE pgreserror_detail(  VALUE self);
+static VALUE pgreserror_hint(    VALUE self);
+static VALUE pgreserror_diag(    VALUE self, VALUE field);
 
+
+static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
+
+static void pgresult_mark( struct pgresult_data *ptr);
+static void pgresult_free( struct pgresult_data *ptr);
+extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn);
+
+extern VALUE pgresult_clear( VALUE self);
+
+static VALUE pgresult_status( VALUE self);
+
+static VALUE pgresult_fields( VALUE self);
+static VALUE pgresult_field_indices( VALUE self);
+static VALUE pgresult_num_fields( VALUE self);
+static VALUE pgresult_fieldname( VALUE self, VALUE index);
+static VALUE pgresult_fieldnum( VALUE self, VALUE name);
+
+extern VALUE pgresult_each( VALUE self);
+static VALUE pgresult_aref( int argc, VALUE *argv, VALUE self);
+extern VALUE pg_fetchrow( struct pgresult_data *r, int num);
+extern VALUE pg_fetchresult( struct pgresult_data *r, int row, int col);
+static VALUE pgresult_num_tuples( VALUE self);
+
+static VALUE pgresult_type( VALUE self, VALUE index);
+static VALUE pgresult_size( VALUE self, VALUE index);
+static VALUE pgresult_getvalue( VALUE self, VALUE row, VALUE col);
+static VALUE pgresult_getlength( VALUE self, VALUE row, VALUE col);
+static VALUE pgresult_getisnull( VALUE self, VALUE row, VALUE col);
+static VALUE pgresult_getvalue_byname( VALUE self, VALUE row, VALUE field_name);
+
+static VALUE pgresult_cmdtuples( VALUE self);
+static VALUE pgresult_cmdstatus( VALUE self);
+static VALUE pgresult_oid( VALUE self);
+
+
+static VALUE rb_cBigDecimal;
 
 static VALUE rb_cPgResult;
 static VALUE rb_ePgResError;
 
+static ID id_new;
+static ID id_parse;
 
-VALUE
-pg_currency_class( void)
+static int translate_results = 1;
+
+
+
+
+
+void
+pg_checkresult( PGresult *result, struct pgconn_data *conn)
 {
-    if (NIL_P( rb_cCurrency) && rb_const_defined( rb_cObject, id_currency))
-        rb_cCurrency = rb_const_get( rb_cObject, id_currency);
-    return rb_cCurrency;
-}
-
-
-int
-pg_checkresult( PGresult *result)
-{
-    int s;
-
-    s = PQresultStatus( result);
-    switch (s) {
+    switch (PQresultStatus( result)) {
         case PGRES_EMPTY_QUERY:
         case PGRES_COMMAND_OK:
         case PGRES_TUPLES_OK:
@@ -88,64 +86,82 @@ pg_checkresult( PGresult *result)
         case PGRES_BAD_RESPONSE:
         case PGRES_NONFATAL_ERROR:
         case PGRES_FATAL_ERROR:
-            return -1;
+            rb_exc_raise( pgreserror_new( result, conn));
             break;
         default:
             PQclear( result);
             rb_raise( rb_ePgError, "internal error: unknown result status.");
             break;
     }
-    return s;
 }
 
-PGresult *
-get_pgresult( VALUE obj)
+
+void
+pgreserr_mark( struct pgreserr_data *ptr)
 {
-    PGresult *result;
-
-    Data_Get_Struct( obj, PGresult, result);
-    if (result == NULL)
-        rb_raise( rb_ePgError, "query not performed");
-    return result;
+    rb_gc_mark( ptr->command);
+    rb_gc_mark( ptr->params);
 }
 
-int
-get_tuple_number( PGresult *result, VALUE index)
+void
+pgreserr_free( struct pgreserr_data *ptr)
 {
-    int i;
-
-    i = NUM2INT( index);
-    if (i < 0 || i >= PQntuples( result))
-        rb_raise( rb_eArgError, "invalid tuple number %d", i);
-    return i;
+    PQclear( ptr->res);
+    free( ptr);
 }
-
-int
-get_field_number( PGresult *result, VALUE index)
-{
-    int i;
-
-    i = NUM2INT( index);
-    if (i < 0 || i >= PQnfields( result))
-        rb_raise( rb_eArgError, "invalid field number %d", i);
-    return i;
-}
-
-
 
 VALUE
-pgreserror_new( PGresult *result, VALUE cmd, VALUE args)
+pgreserror_new( PGresult *result, struct pgconn_data *conn)
 {
+    struct pgreserr_data *r;
     VALUE rse, msg;
 
-    rse = pgresult_alloc( rb_ePgResError);
-    DATA_PTR( rse) = result;
+    rse = Data_Make_Struct( rb_ePgResError, struct pgreserr_data, &pgreserr_mark, &pgreserr_free, r);
+    r->res     = result;
+    r->conn    = conn;
+    r->command = conn->command;
+    r->params  = conn->params;
+    pgconn_clear( conn);
     msg = rb_str_new2( PQresultErrorMessage( result));
     rb_obj_call_init( rse, 1, &msg);
-    rb_ivar_set( rse, rb_intern( "@command"),    cmd);
-    rb_ivar_set( rse, rb_intern( "@parameters"), args);
     return rse;
 }
+
+
+
+/*
+ * call-seq:
+ *   pgqe.command() => str
+ *
+ * The command that produced this error.
+ *
+ */
+VALUE
+pgreserror_command( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return r->command;
+}
+
+/*
+ * call-seq:
+ *   pgqe.parameters() => +ary+ or +nil+
+ *
+ * The parameters of the command that produced this error.
+ *
+ */
+VALUE
+pgreserror_params( VALUE self)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return r->params;
+}
+
+
 
 
 /*
@@ -158,7 +174,10 @@ pgreserror_new( PGresult *result, VALUE cmd, VALUE args)
 VALUE
 pgreserror_status( VALUE self)
 {
-    return INT2NUM( PQresultStatus( get_pgresult( self)));
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return INT2FIX( PQresultStatus( r->res));
 }
 
 /*
@@ -171,10 +190,10 @@ pgreserror_status( VALUE self)
 VALUE
 pgreserror_sqlst( VALUE self)
 {
-    char *e;
+    struct pgreserr_data *r;
 
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_SQLSTATE);
-    return rb_str_new2( e);
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_SQLSTATE));
 }
 
 /*
@@ -187,10 +206,10 @@ pgreserror_sqlst( VALUE self)
 VALUE
 pgreserror_primary( VALUE self)
 {
-    char *e;
+    struct pgreserr_data *r;
 
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_MESSAGE_PRIMARY);
-    return rb_str_new2( e);
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_PRIMARY));
 }
 
 
@@ -204,10 +223,10 @@ pgreserror_primary( VALUE self)
 VALUE
 pgreserror_detail( VALUE self)
 {
-    char *e;
+    struct pgreserr_data *r;
 
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_MESSAGE_DETAIL);
-    return e == NULL ? Qnil : rb_str_new2( e);
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_DETAIL));
 }
 
 
@@ -221,30 +240,103 @@ pgreserror_detail( VALUE self)
 VALUE
 pgreserror_hint( VALUE self)
 {
-    char *e;
+    struct pgreserr_data *r;
 
-    e = PQresultErrorField( get_pgresult( self), PG_DIAG_MESSAGE_HINT);
-    return e == NULL ? Qnil : rb_str_new2( e);
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_HINT));
 }
 
+
+/*
+ * call-seq:
+ *   pgqe.diag( field) => string
+ *
+ * Error diagnose message. Give one of the PG_DIAG_* constants
+ * to specify a field.
+ *
+ */
+VALUE
+pgreserror_diag( VALUE self, VALUE field)
+{
+    struct pgreserr_data *r;
+
+    Data_Get_Struct( self, struct pgreserr_data, r);
+    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, NUM2INT( field)));
+}
+
+
+
+/*
+ * call-seq:
+ *   Pg::Conn.translate_results = boolean
+ *
+ * When true (default), results are translated to an appropriate Ruby class.
+ * When false, results are returned as +Strings+.
+ *
+ */
+VALUE
+pgresult_s_translate_results_set( VALUE cls, VALUE fact)
+{
+    translate_results = RTEST( fact) ? 1 : 0;
+    return Qnil;
+}
+
+
+
+void
+pgresult_mark( struct pgresult_data *ptr)
+{
+    rb_gc_mark( ptr->fields);
+    rb_gc_mark( ptr->indices);
+}
+
+void
+pgresult_free( struct pgresult_data *ptr)
+{
+    if (ptr->res != NULL)
+        PQclear( ptr->res);
+    free( ptr);
+}
+
+void
+pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn)
+{
+    r->res     = result;
+    r->conn    = conn;
+    r->fields  = Qnil;
+    r->indices = Qnil;
+}
 
 VALUE
-pgresult_alloc( VALUE cls)
+pgresult_new( PGresult *result, struct pgconn_data *conn)
 {
-    return Data_Wrap_Struct( cls, 0, &PQclear, NULL);
+    struct pgresult_data *r;
+    VALUE rse;
+
+    rse = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
+    pgresult_init( r, result, conn);
+    return rse;
 }
 
-
+/*
+ * call-seq:
+ *    res.clear()
+ *
+ * Clears the Pg::Result object as the result of the query.
+ */
 VALUE
-pgresult_new( PGconn *conn, PGresult *result)
+pgresult_clear( VALUE self)
 {
-    VALUE res;
+    struct pgresult_data *r;
 
-    res = pgresult_alloc( rb_cPgResult);
-    DATA_PTR( res) = result;
-    rb_obj_call_init( res, 0, NULL);
-    return res;
+    Data_Get_Struct( self, struct pgresult_data, r);
+    if (r->res != NULL) {
+      PQclear( r->res);
+      r->res = NULL;
+    }
+    return Qnil;
 }
+
 
 /*
  * call-seq:
@@ -258,63 +350,248 @@ pgresult_new( PGconn *conn, PGresult *result)
  *     * +COPY_IN+
  */
 VALUE
-pgresult_status( VALUE obj)
+pgresult_status( VALUE self)
 {
-    return INT2NUM( PQresultStatus( get_pgresult( obj)));
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return INT2FIX( PQresultStatus( r->res));
 }
 
 
-VALUE
-fetch_fields( PGresult *result)
-{
-    VALUE ary;
-    int n, i;
-    VALUE str;
 
-    n = PQnfields( result);
-    ary = rb_ary_new2( n);
-    for (i = 0; i < n; i++) {
-        str = rb_tainted_str_new2( PQfname( result, i));
-        rb_str_freeze( str);
-        rb_ary_push( ary, str);
+/*
+ * call-seq:
+ *    res.fields()
+ *
+ * Returns an array of Strings representing the names of the fields in the
+ * result.
+ *
+ *   res = conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
+ *   res.fields => [ 'foo', 'biggles', 'jim', 'jam']
+ */
+VALUE
+pgresult_fields( VALUE self)
+{
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    if (NIL_P( r->fields)) {
+        VALUE ary;
+        int n, i;
+        VALUE str;
+
+        n = PQnfields( r->res);
+        ary = rb_ary_new2( n);
+        for (i = 0; n; i++, n--) {
+            str = pgconn_mkstring( r->conn, PQfname( r->res, i));
+            rb_str_freeze( str);
+            rb_ary_push( ary, str);
+        }
+        rb_ary_freeze( ary);
+        r->fields = ary;
     }
-    rb_ary_freeze( ary);
-    return ary;
+    return r->fields;
 }
 
+/*
+ * call-seq:
+ *    res.field_indices()
+ *
+ * Returns a hash that points to field numbers.
+ * result.
+ *
+ *   res = conn.exec( "SELECT foo, bar AS biggles FROM mytable")
+ *   res.field_indices => { 'foo' => 0, 'biggles' => 1 }
+ */
 VALUE
-field_index( VALUE fields, VALUE name)
+pgresult_field_indices( VALUE self)
 {
-    VALUE ret;
+    struct pgresult_data *r;
 
-    ret = rb_funcall( fields, id_index, 1, name);
-    if (ret == Qnil)
-        rb_raise( rb_ePgError, "%s: field not found", RSTRING_PTR( name));
-    return ret;
+    Data_Get_Struct( self, struct pgresult_data, r);
+    if (NIL_P( r->indices)) {
+        VALUE hsh;
+        int n, i;
+        VALUE str;
+
+        n = PQnfields( r->res);
+        hsh = rb_hash_new();
+        for (i = 0; n; i++, n--) {
+            str = pgconn_mkstring( r->conn, PQfname( r->res, i));
+            rb_str_freeze( str);
+            rb_hash_aset( hsh, str, INT2FIX( i));
+        }
+        rb_hash_freeze( hsh);
+        r->indices = hsh;
+    }
+    return r->indices;
+}
+
+/*
+ * call-seq:
+ *    res.num_fields()
+ *
+ * Returns the number of fields (columns) in the query result.
+ *
+ * Similar to <code>res.result[0].length</code> (but faster).
+ */
+VALUE
+pgresult_num_fields( VALUE self)
+{
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return INT2FIX( PQnfields( r->res));
+}
+
+/*
+ * call-seq:
+ *    res.fieldname( index)
+ *
+ * Returns the name of the field (column) corresponding to the index.
+ *
+ *   res = conn.exec "SELECT foo, bar AS biggles, jim, jam FROM mytable"
+ *   res.fieldname 2     #=> 'jim'
+ *   res.fieldname 1     #=> 'biggles'
+ *
+ * Equivalent to <code>res.fields[_index_]</code>.
+ */
+VALUE
+pgresult_fieldname( VALUE self, VALUE index)
+{
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return pgconn_mkstring( r->conn, PQfname( r->res, NUM2INT( index)));
+}
+
+/*
+ * call-seq:
+ *    res.fieldnum( name)
+ *
+ * Returns the index of the field specified by the string _name_.
+ *
+ *   res = conn.exec "SELECT foo, bar AS biggles, jim, jam FROM mytable"
+ *   res.fieldnum 'foo'     #=> 0
+ *
+ * Raises an ArgumentError if the specified _name_ isn't one of the field
+ * names; raises a TypeError if _name_ is not a String.
+ */
+VALUE
+pgresult_fieldnum( VALUE self, VALUE name)
+{
+    struct pgresult_data *r;
+    int n;
+
+    StringValue( name);
+    Data_Get_Struct( self, struct pgresult_data, r);
+    n = PQfnumber( r->res, pgconn_destring( r->conn, name, NULL));
+    if (n == -1)
+        rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
+    return INT2FIX( n);
+}
+
+
+
+
+/*
+ * call-seq:
+ *    res.each { |tuple| ... }  ->  nil or int
+ *
+ * Invokes the block for each tuple (row) in the result.
+ *
+ * Return the number of rows the query resulted in, or +nil+ if there
+ * wasn't any (like <code>Numeric#nonzero?</code>).
+ */
+VALUE
+pgresult_each( VALUE self)
+{
+    struct pgresult_data *r;
+    int m, j;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    for (j = 0, m = PQntuples( r->res); m; j++, m--)
+        rb_yield( pg_fetchrow( r, j));
+    return m ? INT2FIX( m) : Qnil;
+}
+
+/*
+ * call-seq:
+ *    res[ n]     -> ary
+ *    res[ n, m]  -> obj
+ *
+ * Returns the tuple (row) corresponding to _n_.  Returns +nil+ if <code>_n_ >=
+ * res.num_tuples</code>.
+ *
+ * Equivalent to <code>res.result[n]</code>.
+ */
+VALUE
+pgresult_aref( int argc, VALUE *argv, VALUE self)
+{
+    struct pgresult_data *r;
+    int a;
+    VALUE aj, ai;
+    int j, i;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    a = rb_scan_args( argc, argv, "11", &aj, &ai);
+    j = NUM2INT( aj);
+    if (j < PQntuples( r->res)) {
+        if (a == 1) {
+            return pg_fetchrow( r, i);
+        } else {
+            if (TYPE( ai) == T_STRING) {
+                ai = rb_hash_aref( pgresult_field_indices( self), ai);
+                if (NIL_P( ai))
+                    return Qnil;
+            }
+            i = NUM2INT( ai);
+            if (i < PQnfields( r->res))
+                return pg_fetchresult( r, j, i);
+        }
+    }
+    return Qnil;
+}
+
+
+VALUE
+pg_fetchrow( struct pgresult_data *r, int num)
+{
+    VALUE row;
+    int n, i;
+
+    n = PQnfields( r->res);
+    row = rb_ary_new2( n);
+    for (i = 0, n; n; ++i, --n)
+        rb_ary_store( row, i, pg_fetchresult( r, num, i));
+    return row;
 }
 
 VALUE
-fetch_pgresult( PGresult *result, int row, int column)
+pg_fetchresult( struct pgresult_data *r, int row, int col)
 {
     char *string;
     Oid typ;
     VALUE ret;
 
-    if (PQgetisnull( result, row, column))
+    if (PQgetisnull( r->res, row, col))
         return Qnil;
 
-    string = PQgetvalue( result, row, column);
+    string = PQgetvalue( r->res, row, col);
+    if (string == NULL)
+        return Qnil;
 
     if (!translate_results)
-        return rb_tainted_str_new2( string);
+        return pgconn_mkstring( r->conn, string);
 
-    typ = PQftype( result, column);
+    typ = PQftype( r->res, col);
     switch (typ) {
     case NUMERICOID:
         {
             int typmod;
 
-            typmod = PQfmod( result, column);
+            typmod = PQfmod( r->res, col);
             if (typmod == -1 || (typmod - VARHDRSZ) & 0xffff)
                 break;
         }
@@ -329,14 +606,13 @@ fetch_pgresult( PGresult *result, int row, int column)
         return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
     case BOOLOID:
         return *string == 't' ? Qtrue : Qfalse;
+        /* strchr( "tTyY", *string) != NULL */
     case BYTEAOID:
-        ret = string_unescape_bytea( string);
-        OBJ_TAINT( ret);
-        return ret;
+        return rb_str_new2( string);
     default:
         break;
     }
-    ret = rb_tainted_str_new2( string);
+    ret = pgconn_mkstring( r->conn, string);
     switch (typ) {
     case NUMERICOID:
         return rb_funcall( rb_cBigDecimal, id_new, 1, ret);
@@ -356,189 +632,24 @@ fetch_pgresult( PGresult *result, int row, int column)
     }
 }
 
-VALUE
-fetch_pgrow( PGresult *result, int row_num, VALUE fields)
-{
-    VALUE row;
-    int i, l;
-
-    row = rb_funcall( rb_cPgRow, id_new, 1, fields);
-    for (i = 0, l = RARRAY_LEN( row); l; ++i, --l)
-        rb_ary_store( row, i, fetch_pgresult( result, row_num, i));
-    return row;
-}
-
-/*
- * call-seq:
- *    res[ n]     -> ary
- *    res[ n, m]  -> obj
- *
- * Returns the tuple (row) corresponding to _n_.  Returns +nil+ if <code>_n_ >=
- * res.num_tuples</code>.
- *
- * Equivalent to <code>res.result[n]</code>.
- */
-VALUE
-pgresult_aref( int argc, VALUE *argv, VALUE obj)
-{
-    PGresult *result;
-    int nf, nt;
-    VALUE a1, a2;
-    int i, j;
-    VALUE ret;
-
-    result = get_pgresult( obj);
-    nt = PQntuples( result);
-    nf = PQnfields( result);
-    ret = Qnil;
-    switch (rb_scan_args( argc, argv, "11", &a1, &a2)) {
-        case 1:
-            i = NUM2INT( a1);
-            if (i < nt)
-                ret = fetch_pgrow( result, i, fetch_fields( result));
-            break;
-        case 2:
-            i = NUM2INT( a1);
-            if (i < nt) {
-                if (TYPE( a2) == T_STRING)
-                    a2 = field_index( fetch_fields( result), a2);
-                j = NUM2INT( a2);
-                if (j < nf)
-                    ret = fetch_pgresult( result, i, j);
-            }
-            break;
-        default:
-            break;
-    }
-    return ret;
-}
-
-VALUE
-string_unescape_bytea( char *escaped)
-{
-    unsigned char *s;
-    size_t l;
-    VALUE ret;
-
-    s = PQunescapeBytea( (unsigned char *) escaped, &l);
-    ret = rb_str_new( (char *) s, l);
-    PQfreemem( s);
-    return ret;
-}
-
-/*
- * call-seq:
- *    res.each { |tuple| ... }  ->  nil or int
- *
- * Invokes the block for each tuple (row) in the result.
- *
- * Return the number of rows the query resulted in, or +nil+ if there
- * wasn't any (like <code>Numeric#nonzero?</code>).
- */
-VALUE
-pgresult_each( VALUE self)
-{
-    PGresult *result;
-    int n, r;
-    VALUE fields;
-
-    result = get_pgresult( self);
-    fields = fetch_fields( result);
-    for (n = 0, r = PQntuples( result); r; n++, r--)
-        rb_yield( fetch_pgrow( result, n, fields));
-
-    return n ? INT2NUM( n) : Qnil;
-}
-
-/*
- * call-seq:
- *    res.fields()
- *
- * Returns an array of Strings representing the names of the fields in the
- * result.
- *
- *   res = conn.exec( "SELECT foo, bar AS biggles, jim, jam FROM mytable")
- *   res.fields => [ 'foo', 'biggles', 'jim', 'jam']
- */
-VALUE
-pgresult_fields( VALUE obj)
-{
-    return fetch_fields( get_pgresult( obj));
-}
-
 /*
  * call-seq:
  *    res.num_tuples()
  *
  * Returns the number of tuples (rows) in the query result.
  *
- * Similar to <code>res.result.length</code> (but faster).
+ * Similar to <code>res.rows.length</code> (but faster).
  */
 VALUE
-pgresult_num_tuples( VALUE obj)
+pgresult_num_tuples( VALUE self)
 {
-    return INT2NUM( PQntuples( get_pgresult( obj)));
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return INT2FIX( PQntuples( r->res));
 }
 
-/*
- * call-seq:
- *    res.num_fields()
- *
- * Returns the number of fields (columns) in the query result.
- *
- * Similar to <code>res.result[0].length</code> (but faster).
- */
-VALUE
-pgresult_num_fields( VALUE obj)
-{
-    return INT2NUM( PQnfields( get_pgresult( obj)));
-}
 
-/*
- * call-seq:
- *    res.fieldname( index)
- *
- * Returns the name of the field (column) corresponding to the index.
- *
- *   res = conn.exec "SELECT foo, bar AS biggles, jim, jam FROM mytable"
- *   res.fieldname 2     #=> 'jim'
- *   res.fieldname 1     #=> 'biggles'
- *
- * Equivalent to <code>res.fields[_index_]</code>.
- */
-VALUE
-pgresult_fieldname( VALUE obj, VALUE index)
-{
-    PGresult *result;
-
-    result = get_pgresult( obj);
-    return rb_tainted_str_new2(
-        PQfname( result, get_field_number( result, index)));
-}
-
-/*
- * call-seq:
- *    res.fieldnum( name)
- *
- * Returns the index of the field specified by the string _name_.
- *
- *   res = conn.exec "SELECT foo, bar AS biggles, jim, jam FROM mytable"
- *   res.fieldnum 'foo'     #=> 0
- *
- * Raises an ArgumentError if the specified _name_ isn't one of the field
- * names; raises a TypeError if _name_ is not a String.
- */
-VALUE
-pgresult_fieldnum( VALUE obj, VALUE name)
-{
-    int n;
-
-    StringValue( name);
-    n = PQfnumber( get_pgresult( obj), RSTRING_PTR( name));
-    if (n == -1)
-        rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
-    return INT2NUM( n);
-}
 
 /*
  * call-seq:
@@ -551,11 +662,14 @@ pgresult_fieldnum( VALUE obj, VALUE name)
  * every column type in the file <code>src/include/catalog/pg_type.h</code>.
  */
 VALUE
-pgresult_type( VALUE obj, VALUE index)
+pgresult_type( VALUE self, VALUE index)
 {
-    PGresult* result = get_pgresult( obj);
-    return INT2NUM(
-        PQftype( result, get_field_number( result, index)));
+    struct pgresult_data *r;
+    int n;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    n = PQftype( r->res, NUM2INT( index));
+    return n ? INT2FIX( n) : Qnil;
 }
 
 /*
@@ -570,96 +684,93 @@ pgresult_type( VALUE obj, VALUE index)
  *   res.size 1     #=> -1
  */
 VALUE
-pgresult_size( VALUE obj, VALUE index)
+pgresult_size( VALUE self, VALUE index)
 {
-    PGresult *result;
+    struct pgresult_data *r;
+    int n;
 
-    result = get_pgresult( obj);
-    return INT2NUM( PQfsize( result, get_field_number( result, index)));
+    Data_Get_Struct( self, struct pgresult_data, r);
+    n = PQfsize( r->res, NUM2INT( index));
+    return n ? INT2FIX( n) : Qnil;
 }
 
 /*
  * call-seq:
- *    res.value( tup_num, field_num)
+ *    res.value( row, col)
  *
- * Returns the value in tuple number <i>tup_num</i>, field number
- * <i>field_num</i>. (Row <i>tup_num</i>, column <i>field_num</i>.)
+ * Returns the value in tuple number <i>row</i>, field number
+ * <i>col</i>. (Row <i>row</i>, column <i>col</i>.)
  *
- * Equivalent to <code>res.result[<i>tup_num</i>][<i>field_num</i>]</code> (but
+ * Equivalent to <code>res.row[<i>row</i>][<i>col</i>]</code> (but
  * faster).
  */
 VALUE
-pgresult_getvalue( VALUE obj, VALUE tup_num, VALUE field_num)
+pgresult_getvalue( VALUE self, VALUE row, VALUE col)
 {
-    PGresult *result;
+    struct pgresult_data *r;
 
-    result = get_pgresult( obj);
-    return fetch_pgresult( result,
-        get_tuple_number( result, tup_num),
-        get_field_number( result, field_num));
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return pg_fetchresult( r, NUM2INT( row), NUM2INT( col));
 }
 
 
 /*
  * call-seq:
- *    res.value_byname( tup_num, field_name )
+ *    res.getlength( row, col)  -> int
  *
- * Returns the value in tuple number <i>tup_num</i>, for the field named
+ * Returns the (String) length of the field in bytes.
+ *
+ * Equivalent to
+ * <code>res.value(<i>row</i>,<i>col</i>).length</code>.
+ */
+VALUE
+pgresult_getlength( VALUE self, VALUE row, VALUE col)
+{
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return INT2FIX( PQgetlength( r->res, NUM2INT( row), NUM2INT( col)));
+}
+
+/*
+ * call-seq:
+ *    res.getisnull( row, col) -> boolean
+ *
+ * Returns +true+ if the specified value is +nil+; +false+ otherwise.
+ *
+ * Equivalent to
+ * <code>res.value(<i>row</i>,<i>col</i>)==+nil+</code>.
+ */
+VALUE
+pgresult_getisnull( VALUE self, VALUE row, VALUE col)
+{
+    struct pgresult_data *r;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    return PQgetisnull( r->res, NUM2INT( row), NUM2INT( col)) ? Qtrue : Qfalse;
+}
+
+/*
+ * call-seq:
+ *    res.value_byname( row, field_name )
+ *
+ * Returns the value in tuple number <i>row</i>, for the field named
  * <i>field_name</i>.
  *
  * Equivalent to (but faster than) either of:
- *    res.result[<i>tup_num</i>][ res.fieldnum(<i>field_name</i>) ]
- *    res.value( <i>tup_num</i>, res.fieldnum(<i>field_name</i>) )
+ *    res.row[<i>row</i>][ res.fieldnum(<i>field_name</i>) ]
+ *    res.value( <i>row</i>, res.fieldnum(<i>field_name</i>) )
  *
  * <i>(This method internally calls #value as like the second example above;
  * it is slower than using the field index directly.)</i>
  */
 VALUE
-pgresult_getvalue_byname( VALUE obj, VALUE tup_num, VALUE field_name)
+pgresult_getvalue_byname( VALUE self, VALUE row, VALUE field)
 {
-    return pgresult_getvalue( obj, tup_num,
-                pgresult_fieldnum( obj, field_name));
+    return pgresult_getvalue( self, row, pgresult_fieldnum( self, field));
 }
 
-/*
- * call-seq:
- *    res.getlength( tup_num, field_num)  -> int
- *
- * Returns the (String) length of the field in bytes.
- *
- * Equivalent to
- * <code>res.value(<i>tup_num</i>,<i>field_num</i>).length</code>.
- */
-VALUE
-pgresult_getlength( VALUE obj, VALUE tup_num, VALUE field_num)
-{
-    PGresult *result;
 
-    result = get_pgresult( obj);
-    return INT2FIX( PQgetlength( result,
-        get_tuple_number( result, tup_num),
-        get_field_number( result, field_num)));
-}
-
-/*
- * call-seq:
- *    res.getisnull( tuple_position, field_position) -> boolean
- *
- * Returns +true+ if the specified value is +nil+; +false+ otherwise.
- *
- * Equivalent to
- * <code>res.value(<i>tup_num</i>,<i>field_num</i>)==+nil+</code>.
- */
-VALUE
-pgresult_getisnull( VALUE obj, VALUE tup_num, VALUE field_num)
-{
-    PGresult *result;
-
-    result = get_pgresult( obj);
-    return PQgetisnull( result,
-        get_tuple_number( result, tup_num),
-        get_field_number( result, field_num)) ? Qtrue : Qfalse;
-}
 
 /*
  * call-seq:
@@ -672,11 +783,13 @@ pgresult_getisnull( VALUE obj, VALUE tup_num, VALUE field_num)
  * affected, <code>0</code> is returned.
  */
 VALUE
-pgresult_cmdtuples( VALUE obj)
+pgresult_cmdtuples( VALUE self)
 {
+    struct pgresult_data *r;
     char *n;
 
-    n = PQcmdTuples( get_pgresult( obj));
+    Data_Get_Struct( self, struct pgresult_data, r);
+    n = PQcmdTuples( r->res);
     return *n ? rb_cstr_to_inum( n, 10, 0) : Qnil;
 }
 
@@ -687,9 +800,14 @@ pgresult_cmdtuples( VALUE obj)
  * Returns the status string of the last query command.
  */
 VALUE
-pgresult_cmdstatus( VALUE obj)
+pgresult_cmdstatus( VALUE self)
 {
-    return rb_tainted_str_new2( PQcmdStatus( get_pgresult( obj)));
+    struct pgresult_data *r;
+    char *n;
+
+    Data_Get_Struct( self, struct pgresult_data, r);
+    n = PQcmdStatus( r->res);
+    return n ? pgconn_mkstring( r->conn, n) : Qnil;
 }
 
 /*
@@ -699,29 +817,16 @@ pgresult_cmdstatus( VALUE obj)
  * Returns the +oid+.
  */
 VALUE
-pgresult_oid( VALUE obj)
+pgresult_oid( VALUE self)
 {
+    struct pgresult_data *r;
     Oid n;
 
-    n = PQoidValue( get_pgresult( obj));
-    return n == InvalidOid ? Qnil : INT2NUM( n);
+    Data_Get_Struct( self, struct pgresult_data, r);
+    n = PQoidValue( r->res);
+    return n == InvalidOid ? Qnil : INT2FIX( n);
 }
 
-/*
- * call-seq:
- *    res.clear()
- *
- * Clears the Pg::Result object as the result of the query.
- */
-VALUE
-pgresult_clear( VALUE obj)
-{
-    if (DATA_PTR( obj) != NULL) {
-      PQclear( get_pgresult( obj));
-      DATA_PTR( obj) = NULL;
-    }
-    return Qnil;
-}
 
 
 
@@ -745,23 +850,70 @@ pgresult_clear( VALUE obj)
 void
 Init_pgsql_result( void)
 {
-#if 0
-    rb_mPg = rb_define_module( "Pg");
-#endif
-
     rb_require( "bigdecimal");
     rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
 
-    rb_require( "date");
-    rb_require( "time");
-    rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
-    rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
-    rb_cCurrency   = Qnil;
-
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
-    rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
+
+
+    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
+    rb_undef_method( CLASS_OF( rb_ePgResError), "new");
+
+    rb_define_method( rb_ePgResError, "command",    pgreserror_command, 0);
+    rb_define_method( rb_ePgResError, "parameters", pgreserror_params, 0);
+
+    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
+    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
+    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
+    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
+    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
+    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
+
+    rb_define_method( rb_ePgResError, "diag", pgreserror_diag, 1);
+
+#define PGD_DEF( c) rb_define_const( rb_ePgResError, #c, INT2FIX( PG_DIAG_ ## c))
+    PGD_DEF( SEVERITY);
+    PGD_DEF( SQLSTATE);
+    PGD_DEF( MESSAGE_PRIMARY);
+    PGD_DEF( MESSAGE_DETAIL);
+    PGD_DEF( MESSAGE_HINT);
+    PGD_DEF( STATEMENT_POSITION);
+    PGD_DEF( INTERNAL_POSITION);
+    PGD_DEF( INTERNAL_QUERY);
+    PGD_DEF( CONTEXT);
+    PGD_DEF( SOURCE_FILE);
+    PGD_DEF( SOURCE_LINE);
+    PGD_DEF( SOURCE_FUNCTION);
+#undef PGD_DEF
+
+    rb_define_singleton_method( rb_cPgResult, "translate_results=", pgresult_s_translate_results_set, 1);
+
     rb_undef_method( CLASS_OF( rb_cPgResult), "new");
+    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
+    rb_define_alias( rb_cPgResult, "close", "clear");
+
+    rb_define_method( rb_cPgResult, "status", pgresult_status, 0);
+
+    rb_define_method( rb_cPgResult, "fields", pgresult_fields, 0);
+    rb_define_method( rb_cPgResult, "field_indices", pgresult_field_indices, 0);
+    rb_define_alias( rb_cPgResult, "indices", "field_indices");
+    rb_define_method( rb_cPgResult, "num_fields", pgresult_num_fields, 0);
+    rb_define_method( rb_cPgResult, "fieldname", pgresult_fieldname, 1);
+    rb_define_method( rb_cPgResult, "fieldnum", pgresult_fieldnum, 1);
+
+    rb_define_method( rb_cPgResult, "each", pgresult_each, 0);
     rb_include_module( rb_cPgResult, rb_mEnumerable);
+    rb_define_alias( rb_cPgResult, "rows", "entries");
+    rb_define_alias( rb_cPgResult, "result", "entries");
+    rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
+    rb_define_method( rb_cPgResult, "num_tuples", pgresult_num_tuples, 0);
+
+    rb_define_method( rb_cPgResult, "type", pgresult_type, 1);
+    rb_define_method( rb_cPgResult, "size", pgresult_size, 1);
+    rb_define_method( rb_cPgResult, "getvalue", pgresult_getvalue, 2);
+    rb_define_method( rb_cPgResult, "getlength", pgresult_getlength, 2);
+    rb_define_method( rb_cPgResult, "getisnull", pgresult_getisnull, 2);
+    rb_define_method( rb_cPgResult, "getvalue_byname", pgresult_getvalue_byname, 2);
 
 #define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
     RESC_DEF( EMPTY_QUERY);
@@ -774,47 +926,12 @@ Init_pgsql_result( void)
     RESC_DEF( FATAL_ERROR);
 #undef RESC_DEF
 
-    rb_define_method( rb_cPgResult, "status", pgresult_status, 0);
-    rb_define_alias( rb_cPgResult, "result", "entries");
-    rb_define_alias( rb_cPgResult, "rows", "entries");
-    rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
-    rb_define_method( rb_cPgResult, "each", pgresult_each, 0);
-    rb_define_method( rb_cPgResult, "fields", pgresult_fields, 0);
-    rb_define_method( rb_cPgResult, "num_tuples", pgresult_num_tuples, 0);
-    rb_define_method( rb_cPgResult, "num_fields", pgresult_num_fields, 0);
-    rb_define_method( rb_cPgResult, "fieldname", pgresult_fieldname, 1);
-    rb_define_method( rb_cPgResult, "fieldnum", pgresult_fieldnum, 1);
-    rb_define_method( rb_cPgResult, "type", pgresult_type, 1);
-    rb_define_method( rb_cPgResult, "size", pgresult_size, 1);
-    rb_define_method( rb_cPgResult, "getvalue", pgresult_getvalue, 2);
-    rb_define_method( rb_cPgResult, "getvalue_byname",
-                                                 pgresult_getvalue_byname, 2);
-    rb_define_method( rb_cPgResult, "getlength", pgresult_getlength, 2);
-    rb_define_method( rb_cPgResult, "getisnull", pgresult_getisnull, 2);
     rb_define_method( rb_cPgResult, "cmdtuples", pgresult_cmdtuples, 0);
     rb_define_method( rb_cPgResult, "cmdstatus", pgresult_cmdstatus, 0);
     rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
-    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
-    rb_define_alias( rb_cPgResult, "close", "clear");
 
 
-    rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error",
-                                                                rb_ePgError);
-    rb_define_alloc_func( rb_ePgResError, pgresult_alloc);
-
-    rb_define_attr( rb_ePgResError, "command",    1, 0);
-    rb_define_attr( rb_ePgResError, "parameters", 1, 0);
-
-    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
-    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
-    rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
-    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
-    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
-    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
-
-
+    id_new      = rb_intern( "new");
     id_parse    = rb_intern( "parse");
-    id_index    = rb_intern( "index");
-    id_currency = rb_intern( "Currency");
 }
 

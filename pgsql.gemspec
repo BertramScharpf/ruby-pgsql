@@ -27,28 +27,25 @@ EOT
   s.homepage          = "http://www.bertram-scharpf.de"
 
   s.requirements      = "PostgreSQL"
-  s.add_dependency      "autorake", ">=1.1"
+  s.add_dependency      "autorake", ">=2.0"
 
   s.extensions        = "lib/mkrf_conf"
   s.executables       = %w(
-                          pgbackup
                         )
   s.files             = %w(
                           lib/Rakefile
                           lib/mkrf_conf
                           lib/undef.h
-                          lib/base.h
-                          lib/base.c
                           lib/module.h
                           lib/module.c
                           lib/conn.h
                           lib/conn.c
+                          lib/conn_quote.h
+                          lib/conn_quote.c
+                          lib/conn_exec.h
+                          lib/conn_exec.c
                           lib/result.h
                           lib/result.c
-                          lib/row.h
-                          lib/row.c
-                          lib/lo.h
-                          lib/lo.c
                         )
   s.extra_rdoc_files = %w(
                           README

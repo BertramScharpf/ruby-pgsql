@@ -13,8 +13,7 @@ end
 
 
 DLs = {
-  "pgsql.so"    => %w(module.o conn.o result.o row.o base.o ),
-  "pgsqllo.so"  => %w(lo.o base.o ),
+  "pgsql.so"    => %w(module.o conn.o conn_quote.o conn_exec.o result.o ),
 }
 
 DLs.each { |k,v|
