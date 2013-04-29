@@ -835,7 +835,7 @@ pgconn_each_line( VALUE self)
 
 /********************************************************************
  *
- * Document-class: Pg::Conn::Exec
+ * Document-class: Pg::Conn::ExecError
  *
  * Error while querying from a PostgreSQL connection.
  */
@@ -843,7 +843,15 @@ pgconn_each_line( VALUE self)
 
 /********************************************************************
  *
- * Document-class: Pg::Conn::Transaction
+ * Document-class: Pg::Conn::TransactionError
+ *
+ * Nested transaction blocks.  Use savepoints.
+ */
+
+
+/********************************************************************
+ *
+ * Document-class: Pg::Conn::CopyError
  *
  * Nested transaction blocks.  Use savepoints.
  */
@@ -857,11 +865,9 @@ Init_pgsql_conn_exec( void)
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 #endif
 
-#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
-    rb_ePgConnExec  = ERR_DEF( "ExecError");
-    rb_ePgConnTrans = ERR_DEF( "TransactionError");
-    rb_ePgConnCopy  = ERR_DEF( "CopyError");
-#undef ERR_DEF
+    rb_ePgConnExec  = rb_define_class_under( rb_cPgConn, "ExecError",        rb_ePgError);
+    rb_ePgConnTrans = rb_define_class_under( rb_cPgConn, "TransactionError", rb_ePgError);
+    rb_ePgConnCopy  = rb_define_class_under( rb_cPgConn, "CopyError",        rb_ePgError);
 
     rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
     rb_define_method( rb_cPgConn, "send", pgconn_send, -1);

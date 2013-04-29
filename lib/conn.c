@@ -830,10 +830,8 @@ Init_pgsql_conn( void)
 
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
-#define ERR_DEF( n)  rb_define_class_under( rb_cPgConn, n, rb_ePgError)
-    rb_ePgConnFailed  = ERR_DEF( "Failed");
-    rb_ePgConnInvalid = ERR_DEF( "Invalid");
-#undef ERR_DEF
+    rb_ePgConnFailed  = rb_define_class_under( rb_cPgConn, "Failed",  rb_ePgError);
+    rb_ePgConnInvalid = rb_define_class_under( rb_cPgConn, "Invalid", rb_ePgError);
 
     rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
     rb_define_singleton_method( rb_cPgConn, "connect", pgconn_s_connect, -1);
