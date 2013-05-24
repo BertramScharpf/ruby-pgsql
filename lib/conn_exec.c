@@ -902,6 +902,5 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
     rb_define_alias( rb_cPgConn, "get", "getline");
     rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
-    rb_define_alias( rb_cPgConn, "eat_lines", "each_line");
 }
 
