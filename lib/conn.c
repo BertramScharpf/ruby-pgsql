@@ -45,7 +45,7 @@ static VALUE pgconn_set_internalenc( VALUE self, VALUE enc);
 static VALUE pgconn_protocol_version( VALUE self);
 static VALUE pgconn_server_version(   VALUE self);
 
-static VALUE pgconn_db(      VALUE self);
+static VALUE pgconn_dbname(  VALUE self);
 static VALUE pgconn_host(    VALUE self);
 static VALUE pgconn_options( VALUE self);
 static VALUE pgconn_port(    VALUE self);
@@ -282,6 +282,8 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
         connstr_to_hash( params, str);
     connstr_passwd( self, params);
 
+    Data_Get_Struct( self, struct pgconn_data, c);
+
     l = RHASH_SIZE( params) + 1;
     keywords = (const char **) ALLOCA_N( char *, l);
     values   = (const char **) ALLOCA_N( char *, l);
@@ -291,7 +293,6 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     st_foreach( RHASH_TBL( params), &set_connect_params, (st_data_t) ptrs);
     *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
     c->conn = PQconnectdbParams( keywords, values, 1);
     if (PQstatus( c->conn) == CONNECTION_BAD)
         rb_raise( rb_ePgConnFailed, PQerrorMessage( c->conn));
@@ -544,7 +545,7 @@ pgconn_server_version( VALUE self)
  * Returns the connected database name.
  */
 VALUE
-pgconn_db( VALUE self)
+pgconn_dbname( VALUE self)
 {
     struct pgconn_data *c;
     char *db;
@@ -854,8 +855,8 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "protocol_version", pgconn_protocol_version, 0);
     rb_define_method( rb_cPgConn, "server_version", pgconn_server_version, 0);
 
-    rb_define_method( rb_cPgConn, "db", pgconn_db, 0);
-    rb_define_alias( rb_cPgConn, "dbname", "db");
+    rb_define_method( rb_cPgConn, "dbname", pgconn_dbname, 0);
+    rb_define_alias( rb_cPgConn, "db", "dbname");
     rb_define_method( rb_cPgConn, "host", pgconn_host, 0);
     rb_define_method( rb_cPgConn, "options", pgconn_options, 0);
     rb_define_method( rb_cPgConn, "port", pgconn_port, 0);
