@@ -311,11 +311,11 @@ VALUE
 pgresult_new( PGresult *result, struct pgconn_data *conn)
 {
     struct pgresult_data *r;
-    VALUE rse;
+    VALUE res;
 
-    rse = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
+    res = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
     pgresult_init( r, result, conn);
-    return rse;
+    return res;
 }
 
 /*
@@ -860,17 +860,17 @@ Init_pgsql_result( void)
     rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
     rb_undef_method( CLASS_OF( rb_ePgResError), "new");
 
-    rb_define_method( rb_ePgResError, "command",    pgreserror_command, 0);
-    rb_define_method( rb_ePgResError, "parameters", pgreserror_params, 0);
+    rb_define_method( rb_ePgResError, "command",    &pgreserror_command, 0);
+    rb_define_method( rb_ePgResError, "parameters", &pgreserror_params, 0);
 
-    rb_define_method( rb_ePgResError, "status", pgreserror_status, 0);
-    rb_define_method( rb_ePgResError, "sqlstate", pgreserror_sqlst, 0);
+    rb_define_method( rb_ePgResError, "status", &pgreserror_status, 0);
+    rb_define_method( rb_ePgResError, "sqlstate", &pgreserror_sqlst, 0);
     rb_define_alias( rb_ePgResError, "errcode", "sqlstate");
-    rb_define_method( rb_ePgResError, "primary", pgreserror_primary, 0);
-    rb_define_method( rb_ePgResError, "details", pgreserror_detail, 0);
-    rb_define_method( rb_ePgResError, "hint", pgreserror_hint, 0);
+    rb_define_method( rb_ePgResError, "primary", &pgreserror_primary, 0);
+    rb_define_method( rb_ePgResError, "details", &pgreserror_detail, 0);
+    rb_define_method( rb_ePgResError, "hint", &pgreserror_hint, 0);
 
-    rb_define_method( rb_ePgResError, "diag", pgreserror_diag, 1);
+    rb_define_method( rb_ePgResError, "diag", &pgreserror_diag, 1);
 
 #define PGD_DEF( c) rb_define_const( rb_ePgResError, #c, INT2FIX( PG_DIAG_ ## c))
     PGD_DEF( SEVERITY);
@@ -890,31 +890,31 @@ Init_pgsql_result( void)
     rb_define_singleton_method( rb_cPgResult, "translate_results=", pgresult_s_translate_results_set, 1);
 
     rb_undef_method( CLASS_OF( rb_cPgResult), "new");
-    rb_define_method( rb_cPgResult, "clear", pgresult_clear, 0);
+    rb_define_method( rb_cPgResult, "clear", &pgresult_clear, 0);
     rb_define_alias( rb_cPgResult, "close", "clear");
 
-    rb_define_method( rb_cPgResult, "status", pgresult_status, 0);
+    rb_define_method( rb_cPgResult, "status", &pgresult_status, 0);
 
-    rb_define_method( rb_cPgResult, "fields", pgresult_fields, 0);
-    rb_define_method( rb_cPgResult, "field_indices", pgresult_field_indices, 0);
+    rb_define_method( rb_cPgResult, "fields", &pgresult_fields, 0);
+    rb_define_method( rb_cPgResult, "field_indices", &pgresult_field_indices, 0);
     rb_define_alias( rb_cPgResult, "indices", "field_indices");
-    rb_define_method( rb_cPgResult, "num_fields", pgresult_num_fields, 0);
-    rb_define_method( rb_cPgResult, "fieldname", pgresult_fieldname, 1);
-    rb_define_method( rb_cPgResult, "fieldnum", pgresult_fieldnum, 1);
+    rb_define_method( rb_cPgResult, "num_fields", &pgresult_num_fields, 0);
+    rb_define_method( rb_cPgResult, "fieldname", &pgresult_fieldname, 1);
+    rb_define_method( rb_cPgResult, "fieldnum", &pgresult_fieldnum, 1);
 
-    rb_define_method( rb_cPgResult, "each", pgresult_each, 0);
+    rb_define_method( rb_cPgResult, "each", &pgresult_each, 0);
     rb_include_module( rb_cPgResult, rb_mEnumerable);
     rb_define_alias( rb_cPgResult, "rows", "entries");
     rb_define_alias( rb_cPgResult, "result", "entries");
-    rb_define_method( rb_cPgResult, "[]", pgresult_aref, -1);
-    rb_define_method( rb_cPgResult, "num_tuples", pgresult_num_tuples, 0);
+    rb_define_method( rb_cPgResult, "[]", &pgresult_aref, -1);
+    rb_define_method( rb_cPgResult, "num_tuples", &pgresult_num_tuples, 0);
 
-    rb_define_method( rb_cPgResult, "type", pgresult_type, 1);
-    rb_define_method( rb_cPgResult, "size", pgresult_size, 1);
-    rb_define_method( rb_cPgResult, "getvalue", pgresult_getvalue, 2);
-    rb_define_method( rb_cPgResult, "getlength", pgresult_getlength, 2);
-    rb_define_method( rb_cPgResult, "getisnull", pgresult_getisnull, 2);
-    rb_define_method( rb_cPgResult, "getvalue_byname", pgresult_getvalue_byname, 2);
+    rb_define_method( rb_cPgResult, "type", &pgresult_type, 1);
+    rb_define_method( rb_cPgResult, "size", &pgresult_size, 1);
+    rb_define_method( rb_cPgResult, "getvalue", &pgresult_getvalue, 2);
+    rb_define_method( rb_cPgResult, "getlength", &pgresult_getlength, 2);
+    rb_define_method( rb_cPgResult, "getisnull", &pgresult_getisnull, 2);
+    rb_define_method( rb_cPgResult, "getvalue_byname", &pgresult_getvalue_byname, 2);
 
 #define RESC_DEF( c) rb_define_const( rb_cPgResult, #c, INT2FIX( PGRES_ ## c))
     RESC_DEF( EMPTY_QUERY);
@@ -927,9 +927,9 @@ Init_pgsql_result( void)
     RESC_DEF( FATAL_ERROR);
 #undef RESC_DEF
 
-    rb_define_method( rb_cPgResult, "cmdtuples", pgresult_cmdtuples, 0);
-    rb_define_method( rb_cPgResult, "cmdstatus", pgresult_cmdstatus, 0);
-    rb_define_method( rb_cPgResult, "oid", pgresult_oid, 0);
+    rb_define_method( rb_cPgResult, "cmdtuples", &pgresult_cmdtuples, 0);
+    rb_define_method( rb_cPgResult, "cmdstatus", &pgresult_cmdstatus, 0);
+    rb_define_method( rb_cPgResult, "oid", &pgresult_oid, 0);
 
 
     id_new      = rb_intern( "new");

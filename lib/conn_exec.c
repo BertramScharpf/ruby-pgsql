@@ -869,15 +869,15 @@ Init_pgsql_conn_exec( void)
     rb_ePgConnTrans = rb_define_class_under( rb_cPgConn, "TransactionError", rb_ePgError);
     rb_ePgConnCopy  = rb_define_class_under( rb_cPgConn, "CopyError",        rb_ePgError);
 
-    rb_define_method( rb_cPgConn, "exec", pgconn_exec, -1);
-    rb_define_method( rb_cPgConn, "send", pgconn_send, -1);
-    rb_define_method( rb_cPgConn, "fetch", pgconn_fetch, 0);
+    rb_define_method( rb_cPgConn, "exec", &pgconn_exec, -1);
+    rb_define_method( rb_cPgConn, "send", &pgconn_send, -1);
+    rb_define_method( rb_cPgConn, "fetch", &pgconn_fetch, 0);
 
-    rb_define_method( rb_cPgConn, "query", pgconn_query, -1);
-    rb_define_method( rb_cPgConn, "select_one", pgconn_select_one, -1);
-    rb_define_method( rb_cPgConn, "select_value", pgconn_select_value, -1);
-    rb_define_method( rb_cPgConn, "select_values", pgconn_select_values, -1);
-    rb_define_method( rb_cPgConn, "get_notify", pgconn_get_notify, 0);
+    rb_define_method( rb_cPgConn, "query", &pgconn_query, -1);
+    rb_define_method( rb_cPgConn, "select_one", &pgconn_select_one, -1);
+    rb_define_method( rb_cPgConn, "select_value", &pgconn_select_value, -1);
+    rb_define_method( rb_cPgConn, "select_values", &pgconn_select_values, -1);
+    rb_define_method( rb_cPgConn, "get_notify", &pgconn_get_notify, 0);
 
 
 
@@ -889,18 +889,18 @@ Init_pgsql_conn_exec( void)
     TRANS_DEF( UNKNOWN);
 #undef TRANS_DEF
 
-    rb_define_method( rb_cPgConn, "transaction", pgconn_transaction, -1);
-    rb_define_method( rb_cPgConn, "subtransaction", pgconn_subtransaction, -1);
+    rb_define_method( rb_cPgConn, "transaction", &pgconn_transaction, -1);
+    rb_define_method( rb_cPgConn, "subtransaction", &pgconn_subtransaction, -1);
     rb_define_alias( rb_cPgConn, "savepoint", "subtransaction");
-    rb_define_method( rb_cPgConn, "transaction_status", pgconn_transaction_status, 0);
+    rb_define_method( rb_cPgConn, "transaction_status", &pgconn_transaction_status, 0);
 
 
-    rb_define_method( rb_cPgConn, "copy_stdin", pgconn_copy_stdin, -1);
-    rb_define_method( rb_cPgConn, "putline", pgconn_putline, 1);
+    rb_define_method( rb_cPgConn, "copy_stdin", &pgconn_copy_stdin, -1);
+    rb_define_method( rb_cPgConn, "putline", &pgconn_putline, 1);
     rb_define_alias( rb_cPgConn, "put", "putline");
-    rb_define_method( rb_cPgConn, "copy_stdout", pgconn_copy_stdout, -1);
-    rb_define_method( rb_cPgConn, "getline", pgconn_getline, -1);
+    rb_define_method( rb_cPgConn, "copy_stdout", &pgconn_copy_stdout, -1);
+    rb_define_method( rb_cPgConn, "getline", &pgconn_getline, -1);
     rb_define_alias( rb_cPgConn, "get", "getline");
-    rb_define_method( rb_cPgConn, "each_line", pgconn_each_line, 0);
+    rb_define_method( rb_cPgConn, "each_line", &pgconn_each_line, 0);
 }
 

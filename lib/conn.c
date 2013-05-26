@@ -838,44 +838,44 @@ Init_pgsql_conn( void)
     rb_define_singleton_method( rb_cPgConn, "connect", pgconn_s_connect, -1);
     rb_define_alias( rb_singleton_class( rb_cPgConn), "open", "connect");
     rb_define_singleton_method( rb_cPgConn, "parse", pgconn_s_parse, 1);
-    rb_define_method( rb_cPgConn, "initialize", pgconn_init, -1);
-    rb_define_method( rb_cPgConn, "close", pgconn_close, 0);
+    rb_define_method( rb_cPgConn, "initialize", &pgconn_init, -1);
+    rb_define_method( rb_cPgConn, "close", &pgconn_close, 0);
     rb_define_alias( rb_cPgConn, "finish", "close");
-    rb_define_method( rb_cPgConn, "reset", pgconn_reset, 0);
+    rb_define_method( rb_cPgConn, "reset", &pgconn_reset, 0);
 
-    rb_define_method( rb_cPgConn, "client_encoding", pgconn_client_encoding, 0);
-    rb_define_method( rb_cPgConn, "set_client_encoding", pgconn_set_client_encoding, 1);
+    rb_define_method( rb_cPgConn, "client_encoding", &pgconn_client_encoding, 0);
+    rb_define_method( rb_cPgConn, "set_client_encoding", &pgconn_set_client_encoding, 1);
 #ifdef RUBY_ENCODING
-    rb_define_method( rb_cPgConn, "external_encoding",  pgconn_externalenc, 0);
-    rb_define_method( rb_cPgConn, "external_encoding=", pgconn_set_externalenc, 1);
-    rb_define_method( rb_cPgConn, "internal_encoding",  pgconn_internalenc, 0);
-    rb_define_method( rb_cPgConn, "internal_encoding=", pgconn_set_internalenc, 1);
+    rb_define_method( rb_cPgConn, "external_encoding",  &pgconn_externalenc, 0);
+    rb_define_method( rb_cPgConn, "external_encoding=", &pgconn_set_externalenc, 1);
+    rb_define_method( rb_cPgConn, "internal_encoding",  &pgconn_internalenc, 0);
+    rb_define_method( rb_cPgConn, "internal_encoding=", &pgconn_set_internalenc, 1);
 #endif
 
-    rb_define_method( rb_cPgConn, "protocol_version", pgconn_protocol_version, 0);
-    rb_define_method( rb_cPgConn, "server_version", pgconn_server_version, 0);
+    rb_define_method( rb_cPgConn, "protocol_version", &pgconn_protocol_version, 0);
+    rb_define_method( rb_cPgConn, "server_version", &pgconn_server_version, 0);
 
-    rb_define_method( rb_cPgConn, "dbname", pgconn_dbname, 0);
+    rb_define_method( rb_cPgConn, "dbname", &pgconn_dbname, 0);
     rb_define_alias( rb_cPgConn, "db", "dbname");
-    rb_define_method( rb_cPgConn, "host", pgconn_host, 0);
-    rb_define_method( rb_cPgConn, "options", pgconn_options, 0);
-    rb_define_method( rb_cPgConn, "port", pgconn_port, 0);
-    rb_define_method( rb_cPgConn, "tty", pgconn_tty, 0);
-    rb_define_method( rb_cPgConn, "user", pgconn_user, 0);
-    rb_define_method( rb_cPgConn, "status", pgconn_status, 0);
-    rb_define_method( rb_cPgConn, "error", pgconn_error, 0);
+    rb_define_method( rb_cPgConn, "host", &pgconn_host, 0);
+    rb_define_method( rb_cPgConn, "options", &pgconn_options, 0);
+    rb_define_method( rb_cPgConn, "port", &pgconn_port, 0);
+    rb_define_method( rb_cPgConn, "tty", &pgconn_tty, 0);
+    rb_define_method( rb_cPgConn, "user", &pgconn_user, 0);
+    rb_define_method( rb_cPgConn, "status", &pgconn_status, 0);
+    rb_define_method( rb_cPgConn, "error", &pgconn_error, 0);
 
 #define CONN_DEF( c) rb_define_const( rb_cPgConn, #c, INT2FIX( CONNECTION_ ## c))
     CONN_DEF( OK);
     CONN_DEF( BAD);
 #undef CONN_DEF
 
-    rb_define_method( rb_cPgConn, "socket", pgconn_socket, 0);
+    rb_define_method( rb_cPgConn, "socket", &pgconn_socket, 0);
 
-    rb_define_method( rb_cPgConn, "trace", pgconn_trace, -1);
-    rb_define_method( rb_cPgConn, "untrace", pgconn_untrace, 0);
+    rb_define_method( rb_cPgConn, "trace", &pgconn_trace, -1);
+    rb_define_method( rb_cPgConn, "untrace", &pgconn_untrace, 0);
 
-    rb_define_method( rb_cPgConn, "on_notice", pgconn_on_notice, 0);
+    rb_define_method( rb_cPgConn, "on_notice", &pgconn_on_notice, 0);
 
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();

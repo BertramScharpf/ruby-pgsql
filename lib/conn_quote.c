@@ -628,26 +628,26 @@ Init_pgsql_conn_quote( void)
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 #endif
 
-    rb_define_method( rb_cPgConn, "format", pgconn_format, 1);
+    rb_define_method( rb_cPgConn, "format", &pgconn_format, 1);
 
-    rb_define_method( rb_cPgConn, "escape_bytea", pgconn_escape_bytea, 1);
+    rb_define_method( rb_cPgConn, "escape_bytea", &pgconn_escape_bytea, 1);
 #ifdef RUBY_ENCODING
-    rb_define_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, -1);
-    rb_define_singleton_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, -1);
+    rb_define_method( rb_cPgConn, "unescape_bytea", &pgconn_unescape_bytea, -1);
+    rb_define_singleton_method( rb_cPgConn, "unescape_bytea", &pgconn_unescape_bytea, -1);
 #else
-    rb_define_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, 1);
-    rb_define_singleton_method( rb_cPgConn, "unescape_bytea", pgconn_unescape_bytea, 1);
+    rb_define_method( rb_cPgConn, "unescape_bytea", &pgconn_unescape_bytea, 1);
+    rb_define_singleton_method( rb_cPgConn, "unescape_bytea", &pgconn_unescape_bytea, 1);
 #endif
 
-    rb_define_method( rb_cPgConn, "stringize", pgconn_stringize, 1);
-    rb_define_method( rb_cPgConn, "stringize_line", pgconn_stringize_line, 1);
-    rb_define_method( rb_cPgConn, "for_copy", pgconn_for_copy, 1);
+    rb_define_method( rb_cPgConn, "stringize", &pgconn_stringize, 1);
+    rb_define_method( rb_cPgConn, "stringize_line", &pgconn_stringize_line, 1);
+    rb_define_method( rb_cPgConn, "for_copy", &pgconn_for_copy, 1);
 
-    rb_define_method( rb_cPgConn, "quote", pgconn_quote, 1);
-    rb_define_method( rb_cPgConn, "quote_all", pgconn_quote_all, -1);
+    rb_define_method( rb_cPgConn, "quote", &pgconn_quote, 1);
+    rb_define_method( rb_cPgConn, "quote_all", &pgconn_quote_all, -1);
     rb_define_alias( rb_cPgConn, "q", "quote_all");
 
-    rb_define_method( rb_cPgConn, "quote_identifier", pgconn_quote_identifier, 1);
+    rb_define_method( rb_cPgConn, "quote_identifier", &pgconn_quote_identifier, 1);
     rb_define_alias( rb_cPgConn, "quote_ident", "quote_identifier");
 
     id_format      = rb_intern( "format");
