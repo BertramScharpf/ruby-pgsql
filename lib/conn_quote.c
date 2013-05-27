@@ -124,6 +124,8 @@ pgconn_escape_bytea( VALUE self, VALUE str)
     int l;
     VALUE ret;
 
+    if (NIL_P( str))
+        return Qnil;
     StringValue( str);
     s = PQescapeByteaConn( get_pgconn( self)->conn,
             (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
@@ -170,11 +172,13 @@ pgconn_unescape_bytea( VALUE self, VALUE obj)
     size_t l;
     VALUE ret;
 
+    if (NIL_P( obj))
+        return Qnil;
 #ifdef RUBY_ENCODING
     rb_scan_args( argc, argv, "11", &obj, &enc);
 #endif
-
     StringValue( obj);
+
     s = PQunescapeBytea( (unsigned char *) RSTRING_PTR( obj), &l);
     ret = rb_str_new( (char *) s, l);
     PQfreemem( s);
@@ -606,6 +610,8 @@ pgconn_quote_identifier( VALUE self, VALUE str)
     char *p;
     VALUE res;
 
+    if (NIL_P( str))
+        return Qnil;
     StringValue( str);
     p = PQescapeIdentifier( get_pgconn( self)->conn, RSTRING_PTR( str), RSTRING_LEN( str));
     res = rb_str_new2( p);
