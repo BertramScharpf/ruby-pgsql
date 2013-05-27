@@ -39,6 +39,9 @@ VALUE rb_cDate;
 VALUE rb_cDateTime;
 VALUE rb_cCurrency;
 
+static const char *string_null = "NULL";
+static const char *string_bsl_N = "\\N";
+
 static ID id_format;
 static ID id_iso8601;
 static ID id_raw;
@@ -46,8 +49,6 @@ static ID id_to_postgres;
 static ID id_gsub;
 static ID id_currency;
 
-static VALUE pg_string_null;
-static VALUE pg_string_bsl_N;
 static VALUE pg_escape_regex;
 
 
@@ -226,7 +227,7 @@ pgconn_stringize( VALUE self, VALUE obj)
             break;
 
         case T_NIL:
-            result = pg_string_null;
+            result = rb_str_new2( string_null);
             break;
 
         case T_TRUE:
@@ -315,7 +316,7 @@ pgconn_for_copy( VALUE self, VALUE obj)
     VALUE ret;
 
     if (NIL_P( obj))
-        ret = pg_string_bsl_N;
+        ret = rb_str_new2( string_bsl_N);
     else {
         ret = pgconn_stringize( self, obj);
         if (NIL_P( pg_escape_regex))
@@ -333,7 +334,7 @@ needs_dquote_string( VALUE str)
     char *p;
     long l;
 
-    if (rb_str_cmp( str, pg_string_null) == 0)
+    if (strcmp( RSTRING_PTR( str), string_null) == 0)
         return 1;
     l = RSTRING_LEN( str);
     if (l == 0)
@@ -394,10 +395,8 @@ stringize_array( VALUE self, VALUE result, VALUE ary)
             rb_str_buf_cat2( result, ",");
         }
         r = pgconn_stringize( self, *o);
-        if (!NIL_P( *o)) {
+        if (!NIL_P( *o))
             r = dquote_string( r);
-            OBJ_INFECT( result, *o);
-        }
         rb_str_buf_append( result, r);
     }
     return result;
@@ -460,7 +459,7 @@ pgconn_quote( VALUE self, VALUE obj)
         case T_STRING:
             return quote_string( self, obj);
         case T_NIL:
-            return pg_string_null;
+            return rb_str_new2( string_null);
         case T_TRUE:
         case T_FALSE:
         case T_FIXNUM:
@@ -658,8 +657,6 @@ Init_pgsql_conn_quote( void)
 
     id_currency    = rb_intern( "Currency");
 
-    pg_string_null  = rb_str_new2( "NULL");
-    pg_string_bsl_N = rb_str_new2( "\\N");
     pg_escape_regex = Qnil;
 }
 
