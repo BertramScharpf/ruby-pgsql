@@ -318,8 +318,10 @@ pgconn_for_copy( VALUE self, VALUE obj)
         ret = pg_string_bsl_N;
     else {
         ret = pgconn_stringize( self, obj);
-        if (NIL_P( pg_escape_regex))
+        if (NIL_P( pg_escape_regex)) {
             pg_escape_regex = rb_reg_new( "([\\b\\f\\n\\r\\t\\v\\\\])", 18, 0);
+            rb_global_variable( &pg_escape_regex);
+        }
         if (RTEST( rb_reg_match( pg_escape_regex, ret)))
             ret = rb_block_call( ret, id_gsub, 1, &pg_escape_regex, gsub_escape_i, Qnil);
     }
@@ -658,8 +660,8 @@ Init_pgsql_conn_quote( void)
 
     id_currency    = rb_intern( "Currency");
 
-    pg_string_null  = rb_str_new2( "NULL");
-    pg_string_bsl_N = rb_str_new2( "\\N");
+    pg_string_null  = rb_str_new2( "NULL");  rb_global_variable( &pg_string_null);   rb_str_freeze( pg_string_null);
+    pg_string_bsl_N = rb_str_new2( "\\N");   rb_global_variable( &pg_string_bsl_N);  rb_str_freeze( pg_string_bsl_N);
     pg_escape_regex = Qnil;
 }
 
