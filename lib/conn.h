@@ -19,9 +19,7 @@ struct pgconn_data {
     rb_encoding *external;
     rb_encoding *internal;
 #endif
-    VALUE   command;
-    VALUE   params;
-    VALUE   notice;
+    VALUE notice;
 };
 
 
@@ -31,7 +29,6 @@ extern VALUE rb_cPgConn;
 extern void pg_check_conninvalid( struct pgconn_data *c);
 
 
-extern void pgconn_clear( struct pgconn_data *c);
 extern struct pgconn_data *get_pgconn( VALUE obj);
 
 extern const char *pgconn_destring(  struct pgconn_data *ptr, VALUE str, int *len);

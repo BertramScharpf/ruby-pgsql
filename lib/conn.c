@@ -16,7 +16,6 @@ extern void pg_check_conninvalid( struct pgconn_data *c);
 
 static void  pgconn_mark( struct pgconn_data *ptr);
 static void  pgconn_free( struct pgconn_data *ptr);
-extern void  pgconn_clear( struct pgconn_data *c);
 extern struct pgconn_data *get_pgconn( VALUE obj);
 static VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str);
 extern const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len);
@@ -82,8 +81,6 @@ pg_check_conninvalid( struct pgconn_data *c)
 void
 pgconn_mark( struct pgconn_data *ptr)
 {
-    rb_gc_mark( ptr->command);
-    rb_gc_mark( ptr->params);
     rb_gc_mark( ptr->notice);
 }
 
@@ -93,13 +90,6 @@ pgconn_free( struct pgconn_data *ptr)
     if (ptr->conn != NULL)
         PQfinish( ptr->conn);
     free( ptr);
-}
-
-void
-pgconn_clear( struct pgconn_data *c)
-{
-    c->command = Qnil;
-    c->params  = Qnil;
 }
 
 struct pgconn_data *
@@ -183,8 +173,6 @@ pgconn_alloc( VALUE cls)
     c->external = rb_default_external_encoding();
     c->internal = rb_default_internal_encoding();
 #endif
-    c->command = Qnil;
-    c->params  = Qnil;
     c->notice  = Qnil;
     return r;
 }
@@ -778,12 +766,7 @@ notice_receiver( void *self, const PGresult *result)
     if (c->notice != Qnil) {
         VALUE err;
 
-#if 0
-/* This crashes; maybe because PQclear will also be done by Postgres. */
-        err = pgreserror_new( (PGresult *) result, c);
-#else
         err = pgconn_mkstring( c, PQresultErrorMessage( result));
-#endif
         rb_proc_call( c->notice, rb_ary_new3( 1l, err));
     }
 }

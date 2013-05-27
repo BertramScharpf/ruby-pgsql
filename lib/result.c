@@ -8,15 +8,13 @@
 #include "conn_quote.h"
 
 
-extern void pg_checkresult( PGresult *result, struct pgconn_data *conn);
-static void pgreserr_mark( struct pgreserr_data *ptr);
-static void pgreserr_free( struct pgreserr_data *ptr);
-extern void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
-extern VALUE pgreserror_new( PGresult *result, struct pgconn_data *conn);
+static void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
+static VALUE pgreserror_new( VALUE result, VALUE cmd, VALUE par);
 
 static VALUE pgreserror_command( VALUE self);
 static VALUE pgreserror_params(  VALUE self);
 
+static struct pgresult_data *pgreserror_result( VALUE self);
 static VALUE pgreserror_status(  VALUE self);
 static VALUE pgreserror_sqlst(   VALUE self);
 static VALUE pgreserror_primary( VALUE self);
@@ -29,7 +27,7 @@ static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
 
 static void pgresult_mark( struct pgresult_data *ptr);
 static void pgresult_free( struct pgresult_data *ptr);
-extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn);
+extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par);
 
 extern VALUE pgresult_clear( VALUE self);
 
@@ -66,103 +64,38 @@ static VALUE rb_ePgResError;
 
 static ID id_new;
 static ID id_parse;
+static ID id_result;
 
 static int translate_results = 1;
 
 
 
 
-
-void
-pg_checkresult( PGresult *result, struct pgconn_data *conn)
-{
-    switch (PQresultStatus( result)) {
-        case PGRES_EMPTY_QUERY:
-        case PGRES_COMMAND_OK:
-        case PGRES_TUPLES_OK:
-        case PGRES_COPY_OUT:
-        case PGRES_COPY_IN:
-            break;
-        case PGRES_BAD_RESPONSE:
-        case PGRES_NONFATAL_ERROR:
-        case PGRES_FATAL_ERROR:
-            rb_exc_raise( pgreserror_new( result, conn));
-            break;
-        default:
-            PQclear( result);
-            rb_raise( rb_ePgError, "internal error: unknown result status.");
-            break;
-    }
-}
-
-
-void
-pgreserr_mark( struct pgreserr_data *ptr)
-{
-    rb_gc_mark( ptr->command);
-    rb_gc_mark( ptr->params);
-}
-
-void
-pgreserr_free( struct pgreserr_data *ptr)
-{
-    PQclear( ptr->res);
-    free( ptr);
-}
-
 VALUE
-pgreserror_new( PGresult *result, struct pgconn_data *conn)
+pgreserror_new( VALUE result, VALUE cmd, VALUE par)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
     VALUE rse, msg;
 
-    rse = Data_Make_Struct( rb_ePgResError, struct pgreserr_data, &pgreserr_mark, &pgreserr_free, r);
-    r->res     = result;
-    r->conn    = conn;
-    r->command = conn->command;
-    r->params  = conn->params;
-    pgconn_clear( conn);
-    msg = rb_str_new2( PQresultErrorMessage( result));
-    rb_obj_call_init( rse, 1, &msg);
+    Data_Get_Struct( result, struct pgresult_data, r);
+    msg = pgconn_mkstring( r->conn, PQresultErrorMessage( r->res));
+    rse = rb_class_new_instance( 1, &msg, rb_ePgResError);
+    rb_ivar_set( rse, id_result, result);
+    rb_ivar_set( rse, rb_intern( "@command"),    cmd);
+    rb_ivar_set( rse, rb_intern( "@parameters"), par);
     return rse;
 }
 
 
 
-/*
- * call-seq:
- *   pgqe.command() => str
- *
- * The command that produced this error.
- *
- */
-VALUE
-pgreserror_command( VALUE self)
+static struct pgresult_data *
+pgreserror_result( VALUE self)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
-    return r->command;
+    Data_Get_Struct( rb_ivar_get( self, id_result), struct pgresult_data, r);
+    return r;
 }
-
-/*
- * call-seq:
- *   pgqe.parameters() => +ary+ or +nil+
- *
- * The parameters of the command that produced this error.
- *
- */
-VALUE
-pgreserror_params( VALUE self)
-{
-    struct pgreserr_data *r;
-
-    Data_Get_Struct( self, struct pgreserr_data, r);
-    return r->params;
-}
-
-
-
 
 /*
  * call-seq:
@@ -174,9 +107,9 @@ pgreserror_params( VALUE self)
 VALUE
 pgreserror_status( VALUE self)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
+    r = pgreserror_result( self);
     return INT2FIX( PQresultStatus( r->res));
 }
 
@@ -190,9 +123,9 @@ pgreserror_status( VALUE self)
 VALUE
 pgreserror_sqlst( VALUE self)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
+    r = pgreserror_result( self);
     return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_SQLSTATE));
 }
 
@@ -206,9 +139,9 @@ pgreserror_sqlst( VALUE self)
 VALUE
 pgreserror_primary( VALUE self)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
+    r = pgreserror_result( self);
     return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_PRIMARY));
 }
 
@@ -223,9 +156,9 @@ pgreserror_primary( VALUE self)
 VALUE
 pgreserror_detail( VALUE self)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
+    r = pgreserror_result( self);
     return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_DETAIL));
 }
 
@@ -240,9 +173,9 @@ pgreserror_detail( VALUE self)
 VALUE
 pgreserror_hint( VALUE self)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
+    r = pgreserror_result( self);
     return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_HINT));
 }
 
@@ -258,9 +191,9 @@ pgreserror_hint( VALUE self)
 VALUE
 pgreserror_diag( VALUE self, VALUE field)
 {
-    struct pgreserr_data *r;
+    struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgreserr_data, r);
+    r = pgreserror_result( self);
     return pgconn_mkstring( r->conn, PQresultErrorField( r->res, NUM2INT( field)));
 }
 
@@ -308,13 +241,29 @@ pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *co
 }
 
 VALUE
-pgresult_new( PGresult *result, struct pgconn_data *conn)
+pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par)
 {
     struct pgresult_data *r;
     VALUE res;
 
     res = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
     pgresult_init( r, result, conn);
+    switch (PQresultStatus( result)) {
+        case PGRES_EMPTY_QUERY:
+        case PGRES_COMMAND_OK:
+        case PGRES_TUPLES_OK:
+        case PGRES_COPY_OUT:
+        case PGRES_COPY_IN:
+            break;
+        case PGRES_BAD_RESPONSE:
+        case PGRES_NONFATAL_ERROR:
+        case PGRES_FATAL_ERROR:
+            rb_exc_raise( pgreserror_new( res, cmd, par));
+            break;
+        default:
+            rb_raise( rb_ePgError, "internal error: unknown result status.");
+            break;
+    }
     return res;
 }
 
@@ -562,9 +511,12 @@ pg_fetchrow( struct pgresult_data *r, int num)
     int n, i;
 
     n = PQnfields( r->res);
-    row = rb_ary_new2( n);
-    for (i = 0, n; n; ++i, --n)
-        rb_ary_store( row, i, pg_fetchresult( r, num, i));
+    if (num < PQntuples( r->res)) {
+        row = rb_ary_new2( n);
+        for (i = 0, n; n; ++i, --n)
+            rb_ary_store( row, i, pg_fetchresult( r, num, i));
+    } else
+        row = Qnil;
     return row;
 }
 
@@ -860,8 +812,8 @@ Init_pgsql_result( void)
     rb_ePgResError = rb_define_class_under( rb_cPgResult, "Error", rb_ePgError);
     rb_undef_method( CLASS_OF( rb_ePgResError), "new");
 
-    rb_define_method( rb_ePgResError, "command",    &pgreserror_command, 0);
-    rb_define_method( rb_ePgResError, "parameters", &pgreserror_params, 0);
+    rb_define_attr( rb_ePgResError, "command",    1, 0);
+    rb_define_attr( rb_ePgResError, "parameters", 1, 0);
 
     rb_define_method( rb_ePgResError, "status", &pgreserror_status, 0);
     rb_define_method( rb_ePgResError, "sqlstate", &pgreserror_sqlst, 0);
@@ -932,7 +884,8 @@ Init_pgsql_result( void)
     rb_define_method( rb_cPgResult, "oid", &pgresult_oid, 0);
 
 
-    id_new      = rb_intern( "new");
-    id_parse    = rb_intern( "parse");
+    id_new    = rb_intern( "new");
+    id_parse  = rb_intern( "parse");
+    id_result = rb_intern( "result");
 }
 

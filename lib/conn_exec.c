@@ -18,8 +18,8 @@
 
 static void pg_raise_connexec( struct pgconn_data *c);
 
-static PGresult *pg_statement_exec( VALUE conn, VALUE cmd, VALUE par);
-static void      pg_statement_send( VALUE conn, VALUE cmd, VALUE par);
+static VALUE pg_statement_exec( VALUE conn, VALUE cmd, VALUE par);
+static void  pg_statement_send( VALUE conn, VALUE cmd, VALUE par);
 static char **params_to_strings( VALUE conn, VALUE params, int *len);
 static void free_strings( char **strs, int len);
 static void pg_parse_parameters( int argc, VALUE *argv, VALUE *cmd, VALUE *par);
@@ -59,6 +59,7 @@ static VALUE rb_ePgConnExec;
 static VALUE rb_ePgConnTrans;
 static VALUE rb_ePgConnCopy;
 
+static ID id_to_a;
 
 
 void
@@ -68,7 +69,7 @@ pg_raise_connexec( struct pgconn_data *c)
 }
 
 
-PGresult *
+VALUE
 pg_statement_exec( VALUE conn, VALUE cmd, VALUE par)
 {
     struct pgconn_data *c;
@@ -89,10 +90,7 @@ pg_statement_exec( VALUE conn, VALUE cmd, VALUE par)
     }
     if (result == NULL)
         pg_raise_connexec( c);
-    c->command = cmd;
-    c->params  = par;
-    pg_checkresult( result, c);
-    return result;
+    return pgresult_new( result, c, cmd, par);
 }
 
 
@@ -117,8 +115,6 @@ pg_statement_send( VALUE conn, VALUE cmd, VALUE par)
     }
     if (res <= 0)
         pg_raise_connexec( c);
-    c->command = cmd;
-    c->params  = par;
 }
 
 char **
@@ -188,14 +184,12 @@ pg_parse_parameters( int argc, VALUE *argv, VALUE *cmd, VALUE *par)
 VALUE
 pgconn_exec( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    PGresult *res;
+    VALUE res;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
     res = pg_statement_exec( self, cmd, par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    return yield_or_return_result( pgresult_new( res, c));
+    return yield_or_return_result( res);
 }
 
 
@@ -255,13 +249,8 @@ pgconn_fetch( VALUE self)
     if (PQisBusy( c->conn) > 0)
         return Qnil;
     result = PQgetResult( c->conn);
-    if (result == NULL)
-        res = Qnil;
-    else {
-        pg_checkresult( result, c);
-        res = pgresult_new( result, c);
-    }
-    return NIL_P( res) ? res : yield_or_return_result( res);
+    return result == NULL ? Qnil :
+        yield_or_return_result( pgresult_new( result, c, Qnil, Qnil));
 }
 
 VALUE
@@ -270,7 +259,6 @@ yield_or_return_result( VALUE result)
     struct pgresult_data *r;
 
     Data_Get_Struct( result, struct pgresult_data, r);
-    pgconn_clear( r->conn);
     return rb_block_given_p() ?
         rb_ensure( rb_yield, result, pgresult_clear, result) : result;
 }
@@ -284,7 +272,6 @@ clear_resultqueue( VALUE self)
     Data_Get_Struct( self, struct pgconn_data, c);
     while ((result = PQgetResult( c->conn)) != NULL)
         PQclear( result);
-    pgconn_clear( c);
     return Qnil;
 }
 
@@ -305,30 +292,20 @@ clear_resultqueue( VALUE self)
 VALUE
 pgconn_query( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    PGresult *result;
+    VALUE res;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
-    result = pg_statement_exec( self, cmd, par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    pgconn_clear( c);
-    if (rb_block_given_p()) {
-        VALUE res;
-
-        res = pgresult_new( result, c);
+    res = pg_statement_exec( self, cmd, par);
+    if (rb_block_given_p())
         return rb_ensure( pgresult_each, res, pgresult_clear, res);
-    } else {
-        struct pgresult_data r;
-        int m, j;
+    else {
         VALUE ret;
 
-        pgresult_init( &r, result, c);
-        m = PQntuples( result);
-        ret = rb_ary_new2( m);
-        for (j = 0; m; ++j, --m)
-            rb_ary_store( ret, j, pg_fetchrow( &r, j));
-        PQclear( result);
+        if (!id_to_a)
+            id_to_a = rb_intern( "to_a");
+        ret = rb_funcall( res, id_to_a, 0);
+        pgresult_clear( res);
         return ret;
     }
 }
@@ -343,19 +320,15 @@ pgconn_query( int argc, VALUE *argv, VALUE self)
 VALUE
 pgconn_select_one( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    struct pgresult_data r;
-    VALUE row;
+    VALUE res;
+    struct pgresult_data *r;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
-    pgconn_clear( c);
-    row = PQntuples( r.res) ? pg_fetchrow( &r, 0)
-                            : Qnil;
-    PQclear( r.res);
-    return row;
+    res = pg_statement_exec( self, cmd, par);
+
+    Data_Get_Struct( res, struct pgresult_data, r);
+    return pg_fetchrow( r, 0);
 }
 
 /*
@@ -368,19 +341,16 @@ pgconn_select_one( int argc, VALUE *argv, VALUE self)
 VALUE
 pgconn_select_value( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    struct pgresult_data r;
-    VALUE ret;
+    VALUE res;
+    struct pgresult_data *r;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
-    pgconn_clear( c);
-    ret = PQntuples( r.res) ? pg_fetchresult( &r, 0, 0)
-                            : Qnil;
-    PQclear( r.res);
-    return ret;
+    res = pg_statement_exec( self, cmd, par);
+
+    Data_Get_Struct( res, struct pgresult_data, r);
+    return PQntuples( r->res) > 0 && PQnfields( r->res) > 0 ?
+                    pg_fetchresult( r, 0, 0) : Qnil;
 }
 
 /*
@@ -392,27 +362,25 @@ pgconn_select_value( int argc, VALUE *argv, VALUE self)
 VALUE
 pgconn_select_values( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    struct pgresult_data r;
+    VALUE res;
+    struct pgresult_data *r;
     int n, m, n_;
     int i, j, k;
     VALUE ret;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    pgresult_init( &r, pg_statement_exec( self, cmd, par), c);
-    pgconn_clear( c);
+    res = pg_statement_exec( self, cmd, par);
 
-    m = PQntuples( r.res), n = PQnfields( r.res);
+    Data_Get_Struct( res, struct pgresult_data, r);
+    m = PQntuples( r->res), n = PQnfields( r->res);
     ret = rb_ary_new2( m * n);
     n_ = n;
     for (k = 0, j = 0; m; ++j, --m) {
         for (i = 0; n; ++i, --n, ++k)
-            rb_ary_store( ret, k, pg_fetchresult( &r, j, i));
+            rb_ary_store( ret, k, pg_fetchresult( r, j, i));
         n = n_;
     }
-    PQclear( r.res);
     return ret;
 }
 
@@ -486,14 +454,14 @@ pgconn_transaction( int argc, VALUE *argv, VALUE self)
     if (PQtransactionStatus( c->conn) > PQTRANS_IDLE)
         rb_raise( rb_ePgConnTrans,
             "Nested transaction block. Use Conn#subtransaction.");
-    pg_statement_exec( self, cmd, Qnil);
+    pgresult_clear( pg_statement_exec( self, cmd, Qnil));
     return rb_rescue( yield_transaction, self, rescue_transaction, self);
 }
 
 VALUE
 rescue_transaction( VALUE self)
 {
-    pg_statement_exec( self, rb_str_new2( "rollback;"), Qnil);
+    pgresult_clear( pg_statement_exec( self, rb_str_new2( "rollback;"), Qnil));
     rb_exc_raise( RB_ERRINFO);
     return Qnil;
 }
@@ -504,7 +472,7 @@ yield_transaction( VALUE self)
     VALUE r;
 
     r = rb_yield( self);
-    pg_statement_exec( self, rb_str_new2( "commit;"), Qnil);
+    pgresult_clear( pg_statement_exec( self, rb_str_new2( "commit;"), Qnil));
     return r;
 }
 
@@ -540,7 +508,7 @@ pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
     PQfreemem( p);
     rb_str_buf_cat2( cmd, ";");
 
-    pg_statement_exec( self, cmd, Qnil);
+    pgresult_clear( pg_statement_exec( self, cmd, Qnil));
     return rb_rescue( yield_subtransaction, ya, rescue_subtransaction, ya);
 }
 
@@ -552,7 +520,7 @@ rescue_subtransaction( VALUE ary)
     cmd = rb_str_buf_new2( "rollback to savepoint ");
     rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
     rb_str_buf_cat2( cmd, ";");
-    pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil);
+    pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
     rb_exc_raise( RB_ERRINFO);
     return Qnil;
 }
@@ -566,7 +534,7 @@ yield_subtransaction( VALUE ary)
     cmd = rb_str_buf_new2( "release savepoint ");
     rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
     rb_str_buf_cat2( cmd, ";");
-    pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil);
+    pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
     return r;
 }
 
@@ -614,14 +582,12 @@ pgconn_transaction_status( VALUE self)
 VALUE
 pgconn_copy_stdin( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    PGresult *res;
+    VALUE res;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
     res = pg_statement_exec( self, cmd, par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    return rb_ensure( rb_yield, pgresult_new( res, c), put_end, self);
+    return rb_ensure( rb_yield, res, put_end, self);
 }
 
 
@@ -644,11 +610,8 @@ put_end( VALUE self)
         ;
     if (r < 0)
         rb_raise( rb_ePgConnCopy, "Copy from stdin failed to finish.");
-    while ((res = PQgetResult( c->conn)) != NULL) {
-        pg_checkresult( res, c);
+    while ((res = PQgetResult( c->conn)) != NULL)
         PQclear( res);
-    }
-    pgconn_clear( c);
     return Qnil;
 }
 
@@ -733,14 +696,12 @@ pgconn_putline( VALUE self, VALUE arg)
 VALUE
 pgconn_copy_stdout( int argc, VALUE *argv, VALUE self)
 {
-    struct pgconn_data *c;
     VALUE cmd, par;
-    PGresult *res;
+    VALUE res;
 
     pg_parse_parameters( argc, argv, &cmd, &par);
     res = pg_statement_exec( self, cmd, par);
-    Data_Get_Struct( self, struct pgconn_data, c);
-    return rb_ensure( rb_yield, pgresult_new( res, c), get_end, self);
+    return rb_ensure( rb_yield, res, get_end, self);
 }
 
 VALUE
@@ -750,12 +711,8 @@ get_end( VALUE self)
     PGresult *res;
 
     Data_Get_Struct( self, struct pgconn_data, c);
-    if ((res = PQgetResult( c->conn)) != NULL) {
-        if (NIL_P( RB_ERRINFO))
-            pg_checkresult( res, c);
+    if ((res = PQgetResult( c->conn)) != NULL)
         PQclear( res);
-    }
-    pgconn_clear( c);
     return Qnil;
 }
 
@@ -791,6 +748,7 @@ pgconn_getline( int argc, VALUE *argv, VALUE self)
 
         ret = pgconn_mkstringn( c, b, r);
         PQfreemem( b);
+        rb_lastline_set( ret);
         return ret;
     } else if (r == 0)
         return rb_yield( Qnil);
@@ -902,5 +860,7 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "getline", &pgconn_getline, -1);
     rb_define_alias( rb_cPgConn, "get", "getline");
     rb_define_method( rb_cPgConn, "each_line", &pgconn_each_line, 0);
+
+    ID id_to_a = 0;
 }
 
