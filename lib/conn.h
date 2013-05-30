@@ -16,8 +16,8 @@
 struct pgconn_data {
     PGconn *conn;
 #ifdef RUBY_ENCODING
-    rb_encoding *external;
-    rb_encoding *internal;
+    VALUE external;
+    VALUE internal;
 #endif
     VALUE notice;
 };

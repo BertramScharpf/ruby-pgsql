@@ -140,7 +140,7 @@ params_to_strings( VALUE conn, VALUE params, int *len)
 
             q = pgconn_destring( c, pgconn_stringize( conn, *ptr), &n);
             a = ALLOC_N( char, n + 1);
-            for (p = a; *p = *q; ++p, ++q)
+            for (p = a; *p = n ? *q : '\0'; ++p, ++q, --n)
                 ;
             *v = a;
         }

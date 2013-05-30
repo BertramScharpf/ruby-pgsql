@@ -82,6 +82,10 @@ void
 pgconn_mark( struct pgconn_data *ptr)
 {
     rb_gc_mark( ptr->notice);
+#ifdef RUBY_ENCODING
+    rb_gc_mark( ptr->external);
+    rb_gc_mark( ptr->internal);
+#endif
 }
 
 void
@@ -107,7 +111,8 @@ VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str)
 {
     str = rb_obj_as_string( str);
 #ifdef RUBY_ENCODING
-    str = rb_str_conv_enc( str, rb_enc_get( str), ptr->external);
+    if (rb_enc_compatible( str, ptr->external) == NULL)
+        str = rb_str_conv_enc( str, rb_enc_get( str), rb_to_encoding( ptr->external));
 #endif
     return str;
 }
@@ -127,8 +132,9 @@ VALUE
 pgconn_encode_out4in( struct pgconn_data *ptr, VALUE str)
 {
 #ifdef RUBY_ENCODING
-    rb_enc_associate( str, ptr->external);
-    str = rb_str_conv_enc( str, rb_enc_get( str), ptr->internal);
+    rb_enc_associate( str, rb_to_encoding( ptr->external));
+    if (!NIL_P( ptr->internal))
+        str = rb_str_conv_enc( str, rb_enc_get( str), rb_to_encoding( ptr->internal));
 #endif
     return str;
 }
@@ -170,8 +176,8 @@ pgconn_alloc( VALUE cls)
                             &pgconn_mark, &pgconn_free, c);
     c->conn    = NULL;
 #ifdef RUBY_ENCODING
-    c->external = rb_default_external_encoding();
-    c->internal = rb_default_internal_encoding();
+    c->external = rb_enc_from_encoding( rb_default_external_encoding());
+    c->internal = rb_enc_from_encoding( rb_default_internal_encoding());
 #endif
     c->notice  = Qnil;
     return r;
@@ -443,7 +449,7 @@ pgconn_externalenc( VALUE self)
     struct pgconn_data *c;
 
     Data_Get_Struct( self, struct pgconn_data, c);
-    return rb_enc_from_encoding( c->external);
+    return c->external;
 }
 
 /*
@@ -456,9 +462,11 @@ VALUE
 pgconn_set_externalenc( VALUE self, VALUE enc)
 {
     struct pgconn_data *c;
+    rb_encoding *e;
 
+    e = NIL_P( enc) ? rb_to_encoding( enc) : rb_default_external_encoding();
     Data_Get_Struct( self, struct pgconn_data, c);
-    c->external = NIL_P( enc) ? NULL : rb_to_encoding( enc);
+    c->external = rb_enc_from_encoding( e);
 }
 
 /*
@@ -473,7 +481,7 @@ pgconn_internalenc( VALUE self)
     struct pgconn_data *c;
 
     Data_Get_Struct( self, struct pgconn_data, c);
-    return rb_enc_from_encoding( c->internal);
+    return c->internal;
 }
 
 /*
@@ -486,9 +494,11 @@ VALUE
 pgconn_set_internalenc( VALUE self, VALUE enc)
 {
     struct pgconn_data *c;
+    rb_encoding *e;
 
+    e = NIL_P( enc) ? rb_to_encoding( enc) : rb_default_internal_encoding();
     Data_Get_Struct( self, struct pgconn_data, c);
-    c->internal = NIL_P( enc) ? NULL : rb_to_encoding( enc);
+    c->internal = rb_enc_from_encoding( e);
 }
 
 #endif
