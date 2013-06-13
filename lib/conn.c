@@ -350,25 +350,23 @@ connstr_to_hash( VALUE params, VALUE str)
 void
 connstr_passwd( VALUE self, VALUE params)
 {
-    VALUE id_password;
-    VALUE pw, cl, repl;
+    static ID id_password = 0;
+    VALUE pw;
 
-    id_password = ID2SYM( rb_intern( KEY_PASSWORD));
+    if (id_password == 0)
+        id_password = ID2SYM( rb_intern( KEY_PASSWORD));
     pw = rb_hash_aref( params, id_password);
     if (TYPE( pw) == T_STRING && RSTRING_LEN( pw) == 0) {
-        VALUE id_password_q;
+        static ID id_password_q = 0;
+        VALUE repl;
 
-        id_password_q = rb_intern( "password?");
-        if (rb_respond_to( self, id_password_q))
-            repl = rb_funcall( self, id_password_q, 0);
-        else {
-            cl = CLASS_OF( self);
-            if (rb_respond_to( cl, id_password_q))
-                repl = rb_funcall( cl, id_password_q, 0);
-            else
-                repl = Qnil;
-        }
-        rb_hash_aset( params, id_password, repl);
+        if (id_password_q == 0)
+            id_password_q = rb_intern( "password?");
+        repl = rb_check_funcall( self, id_password_q, 0, NULL);
+        if (repl == Qundef)
+            repl = rb_check_funcall( CLASS_OF( self), id_password_q, 0, NULL);
+        if (repl != Qundef)
+            rb_hash_aset( params, id_password, repl);
     }
 }
 
