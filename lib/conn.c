@@ -29,6 +29,8 @@ static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
 static void  connstr_passwd( VALUE self, VALUE params);
+static VALUE connstr_getparam( VALUE yielded, VALUE params);
+
 static VALUE pgconn_close( VALUE self);
 static VALUE pgconn_reset( VALUE self);
 
@@ -245,7 +247,9 @@ pgconn_s_parse( VALUE cls, VALUE str)
  * @ sign will be read as database name.
  *
  * If the password is the empty string, and there is either an instance method
- * or a class method <code>password?</code>, that method will be asked.
+ * or a class method <code>password?</code>, that method will be asked. From
+ * Ruby 1.9 on, this method may ask <code>yield :user</code> or
+ * <code>yield :dbname</code> to get the connection parameters.
  *
  * See the PostgreSQL documentation for a full list:
  * [http://www.postgresql.org/docs/current/interactive/libpq-connect.html#LIBPQ-PQCONNECTDBPARAMS]
@@ -350,24 +354,33 @@ connstr_to_hash( VALUE params, VALUE str)
 void
 connstr_passwd( VALUE self, VALUE params)
 {
-    static ID id_password = 0;
+    static VALUE sym_password = Qundef;
     VALUE pw;
 
-    if (id_password == 0)
-        id_password = ID2SYM( rb_intern( KEY_PASSWORD));
-    pw = rb_hash_aref( params, id_password);
+    if (sym_password == Qundef)
+        sym_password = ID2SYM( rb_intern( KEY_PASSWORD));
+    pw = rb_hash_aref( params, sym_password);
     if (TYPE( pw) == T_STRING && RSTRING_LEN( pw) == 0) {
         static ID id_password_q = 0;
-        VALUE repl;
+        VALUE pwobj;
 
         if (id_password_q == 0)
             id_password_q = rb_intern( "password?");
-        repl = rb_check_funcall( self, id_password_q, 0, NULL);
-        if (repl == Qundef)
-            repl = rb_check_funcall( CLASS_OF( self), id_password_q, 0, NULL);
-        if (repl != Qundef)
-            rb_hash_aset( params, id_password, repl);
+        pwobj = Qundef;
+        if (rb_respond_to( self, id_password_q))
+            pwobj = self;
+        if (rb_respond_to( CLASS_OF( self), id_password_q))
+            pwobj = CLASS_OF( self);
+        if (pwobj != Qundef)
+            rb_hash_aset( params, sym_password,
+                rb_block_call( pwobj, id_password_q, 0, NULL,
+                                                &connstr_getparam, params));
     }
+}
+
+VALUE connstr_getparam( VALUE yielded, VALUE params)
+{
+    return rb_hash_aref( params, yielded);
 }
 
 /*
