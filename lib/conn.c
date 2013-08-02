@@ -12,7 +12,7 @@
 
 
 extern void pg_check_conninvalid( struct pgconn_data *c);
-
+static VALUE pgconnfailederror_new( struct pgconn_data *c, VALUE params);
 
 static void  pgconn_mark( struct pgconn_data *ptr);
 static void  pgconn_free( struct pgconn_data *ptr);
@@ -76,6 +76,18 @@ pg_check_conninvalid( struct pgconn_data *c)
 {
     if (c->conn == NULL)
         rb_raise( rb_ePgConnInvalid, "Invalid connection (probably closed).");
+}
+
+
+VALUE
+pgconnfailederror_new( struct pgconn_data *c, VALUE params)
+{
+    VALUE msg, cfe;
+
+    msg = pgconn_mkstring( c, PQerrorMessage( c->conn));
+    cfe = rb_class_new_instance( 1, &msg, rb_ePgConnFailed);
+    rb_ivar_set( cfe, rb_intern( "@parameters"), params);
+    return cfe;
 }
 
 
@@ -293,7 +305,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
 
     c->conn = PQconnectdbParams( keywords, values, 1);
     if (PQstatus( c->conn) == CONNECTION_BAD)
-        rb_raise( rb_ePgConnFailed, PQerrorMessage( c->conn));
+        rb_exc_raise( pgconnfailederror_new( c, params));
 
     return self;
 }
@@ -836,6 +848,9 @@ Init_pgsql_conn( void)
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
     rb_ePgConnFailed  = rb_define_class_under( rb_cPgConn, "Failed",  rb_ePgError);
+    rb_undef_method( CLASS_OF( rb_ePgConnFailed), "new");
+    rb_define_attr( rb_ePgConnFailed, "parameters", 1, 0);
+
     rb_ePgConnInvalid = rb_define_class_under( rb_cPgConn, "Invalid", rb_ePgError);
 
     rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
