@@ -259,9 +259,9 @@ pgconn_s_parse( VALUE cls, VALUE str)
  * @ sign will be read as database name.
  *
  * If the password is the empty string, and there is either an instance method
- * or a class method <code>password?</code>, that method will be asked. From
- * Ruby 1.9 on, this method may ask <code>yield :user</code> or
- * <code>yield :dbname</code> to get the connection parameters.
+ * or a class method <code>password?</code>, that method will be asked. This
+ * method may ask <code>yield :user</code> or <code>yield :dbname</code> and so
+ * on to get the connection parameters.
  *
  * See the PostgreSQL documentation for a full list:
  * [http://www.postgresql.org/docs/current/interactive/libpq-connect.html#LIBPQ-PQCONNECTDBPARAMS]
