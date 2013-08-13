@@ -611,8 +611,10 @@ put_end( VALUE self)
     if (r < 0)
         rb_raise( rb_ePgConnCopy, "Copy from stdin failed to finish.");
     while ((res = PQgetResult( c->conn)) != NULL) {
-        rb_gc_mark( pgresult_new( res, c, Qnil, Qnil));
-        PQclear( res);
+        if (PQresultStatus( res) == PGRES_COPY_OUT)
+            PQclear( res);
+        else
+            pgresult_new( res, c, Qnil, Qnil);
     }
     return Qnil;
 }
@@ -714,8 +716,10 @@ get_end( VALUE self)
 
     Data_Get_Struct( self, struct pgconn_data, c);
     if ((res = PQgetResult( c->conn)) != NULL) {
-        rb_gc_mark( pgresult_new( res, c, Qnil, Qnil));
-        PQclear( res);
+        if (PQresultStatus( res) == PGRES_COPY_IN)
+            PQclear( res);
+        else
+            pgresult_new( res, c, Qnil, Qnil);
     }
     return Qnil;
 }
