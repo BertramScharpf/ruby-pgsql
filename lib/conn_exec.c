@@ -606,12 +606,14 @@ put_end( VALUE self)
      * the error info will be non-null even though the
      * exception just has been caught.
      */
-    while ((r = PQputCopyEnd( c->conn, NULL)) <= 0)
+    while ((r = PQputCopyEnd( c->conn, NULL)) == 0)
         ;
     if (r < 0)
         rb_raise( rb_ePgConnCopy, "Copy from stdin failed to finish.");
-    while ((res = PQgetResult( c->conn)) != NULL)
+    while ((res = PQgetResult( c->conn)) != NULL) {
+        rb_gc_mark( pgresult_new( res, c, Qnil, Qnil));
         PQclear( res);
+    }
     return Qnil;
 }
 
@@ -711,8 +713,10 @@ get_end( VALUE self)
     PGresult *res;
 
     Data_Get_Struct( self, struct pgconn_data, c);
-    if ((res = PQgetResult( c->conn)) != NULL)
+    if ((res = PQgetResult( c->conn)) != NULL) {
+        rb_gc_mark( pgresult_new( res, c, Qnil, Qnil));
         PQclear( res);
+    }
     return Qnil;
 }
 
