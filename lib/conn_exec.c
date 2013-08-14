@@ -365,7 +365,7 @@ pgconn_select_values( int argc, VALUE *argv, VALUE self)
     VALUE cmd, par;
     VALUE res;
     struct pgresult_data *r;
-    int n, m, n_;
+    int n, m, n_, l;
     int i, j, k;
     VALUE ret;
 
@@ -374,7 +374,10 @@ pgconn_select_values( int argc, VALUE *argv, VALUE self)
 
     Data_Get_Struct( res, struct pgresult_data, r);
     m = PQntuples( r->res), n = PQnfields( r->res);
-    ret = rb_ary_new2( m * n);
+    l = m * n;
+    if (l == 0)
+        return Qnil;
+    ret = rb_ary_new2( l);
     n_ = n;
     for (k = 0, j = 0; m; ++j, --m) {
         for (i = 0; n; ++i, --n, ++k)
@@ -610,12 +613,8 @@ put_end( VALUE self)
         ;
     if (r < 0)
         rb_raise( rb_ePgConnCopy, "Copy from stdin failed to finish.");
-    while ((res = PQgetResult( c->conn)) != NULL) {
-        if (PQresultStatus( res) == PGRES_COPY_OUT)
-            PQclear( res);
-        else
-            pgresult_new( res, c, Qnil, Qnil);
-    }
+    while ((res = PQgetResult( c->conn)) != NULL)
+        pgresult_new( res, c, Qnil, Qnil);
     return Qnil;
 }
 
@@ -715,12 +714,8 @@ get_end( VALUE self)
     PGresult *res;
 
     Data_Get_Struct( self, struct pgconn_data, c);
-    if ((res = PQgetResult( c->conn)) != NULL) {
-        if (PQresultStatus( res) == PGRES_COPY_IN)
-            PQclear( res);
-        else
-            pgresult_new( res, c, Qnil, Qnil);
-    }
+    if ((res = PQgetResult( c->conn)) != NULL)
+        pgresult_new( res, c, Qnil, Qnil);
     return Qnil;
 }
 
