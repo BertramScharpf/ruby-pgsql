@@ -488,7 +488,7 @@ pgresult_aref( int argc, VALUE *argv, VALUE self)
     j = NUM2INT( aj);
     if (j < PQntuples( r->res)) {
         if (a == 1) {
-            return pg_fetchrow( r, i);
+            return pg_fetchrow( r, j);
         } else {
             if (TYPE( ai) == T_STRING) {
                 ai = rb_hash_aref( pgresult_field_indices( self), ai);
