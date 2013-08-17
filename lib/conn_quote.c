@@ -107,10 +107,10 @@ pgconn_format( VALUE self, VALUE obj)
  * This is what you need, when you pass your object as a Conn#exec parameter,
  * as a +COPY+ input line or as a subject to +Conn#quote+-ing.
  *
- * If you execute an +INSERT+ statement and mention you object in the statement
- * string you should call Conn.quote_bytea().
+ * If you execute an +INSERT+ statement and mention your object in the statement
+ * string via "#{}" you should call Conn.quote() after this.
  *
- * Note that the encoding does not have any influence.  The bytes will bewritten
+ * Note that the encoding does not have any influence.  The bytes will be written
  * as if <code>String#each_byte</code> would have been called.
  *
  * See the PostgreSQL documentation on PQescapeByteaConn
@@ -150,8 +150,8 @@ pgconn_escape_bytea( VALUE self, VALUE str)
  * automatically if the field type was a +bytea+.
  *
  * If +enc+ is given, the result will be associated with this encoding.
- * A conversion will not be tried.  Probably, if dealing with encodings the
- * encoding will be stored in the next column.
+ * A conversion will not be tried.  Probably, if dealing with encodings
+ * you should store the encoding in another column next to the data.
  *
  * See the PostgreSQL documentation on PQunescapeBytea
  * [http://www.postgresql.org/docs/current/interactive/libpq-exec.html#LIBPQ-PQUNESCAPEBYTEA]
@@ -433,18 +433,16 @@ gsub_escape_i( VALUE c, VALUE arg)
 
 
 /*
- * call-seq:
- *   conn.quote( obj) -> str
+ * call-seq: conn.quote( obj) -> str
  *
  * This methods makes a PostgreSQL constant out of everything.  You may mention
- * any result in a statement passed to Conn#exec.
+ * any result in a statement passed to Conn#exec via "#{}".
  *
- * If you prefer to pass your objects as a parameter to +exec+, +query+ etc.
- * or as a field after a +COPY+ statement you should call conn#stringize.
+ * If you prefer to pass your objects as a parameter to +exec+, +query+ etc. or
+ * as a field after a +COPY+ statement you should call conn#stringize.
  *
- * This method is to prevent you from saying something like
- * <code>"insert into ... (E'#{conn.stringize obj}', ...);"</code>.  It is
- * more efficient to say
+ * This method is to prevent you from saying something like <code>"insert into
+ * ... (E'#{conn.stringize obj}', ...);"</code>.  It is more efficient to say
  *
  *   conn.exec "insert into ... (#{conn.quote obj}, ...);"
  *
@@ -452,12 +450,10 @@ gsub_escape_i( VALUE c, VALUE arg)
  * +to_postgres+.  If that doesn't exist the object will be converted by
  * +to_s+.
  *
- * Call Pg::Conn#quote_bytea if you want to tell your string is a byte array.
+ * Call Pg::Conn#escape_bytea first if you want to tell your string is a byte
+ * array and the quote that result.
  */
-VALUE
-pgconn_quote( VALUE self, VALUE obj)
-{
-    VALUE o, res;
+VALUE pgconn_quote( VALUE self, VALUE obj) { VALUE o, res;
 
     o = rb_funcall( self, id_format, 1, obj);
     if (!NIL_P( o))
