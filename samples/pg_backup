@@ -1,0 +1,53 @@
+#!/usr/bin/env ruby
+
+#
+#  pg_backup  --  Backup example
+#
+
+require "pgsql"
+
+
+class PgBackup
+
+  USER = "pgsql"
+
+  # archive_command = 'd=/usr/data/archive/pgsql/becker/wal ; test ! -f $d/%f && cp %p $d/%f'
+
+  DIR = "/usr/data/archive/pgsql/becker"
+
+  def initialize
+    @home = File.expand_path "~#{USER}"
+    @backup = File.expand_path DIR
+    @wal = File.expand_path "wal", @backup
+  end
+
+  def run
+    do_lock {
+      system "rm -f #@wal/*"
+      n = Time.now.strftime "backup_%Y%m%d-%H%M%S"
+      Pg::Conn.connect dbname: "postgres", user: "pgsql" do |db|
+        db.exec "set client_min_messages = error;"
+        db.backup n do
+          system "rsync -par --delete #@home/data #@backup"
+        end
+      end
+    }
+  end
+
+  private
+
+  LOCK_FILENAME = "backup_in_progress"
+
+  def do_lock
+    l = File.join @home, LOCK_FILENAME
+    File.open l, File::WRONLY|File::CREAT|File::EXCL do |f| end
+    yield
+  ensure
+    File.unlink l
+  end
+
+end
+
+b = PgBackup.new
+b.run
+

@@ -53,6 +53,8 @@ static VALUE get_end( VALUE conn);
 static VALUE pgconn_getline( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_each_line( VALUE self);
 
+static VALUE pgconn_backup( VALUE self, VALUE label);
+static VALUE backup_end( VALUE conn);
 
 
 static VALUE rb_ePgConnExec;
@@ -789,8 +791,33 @@ pgconn_each_line( VALUE self)
 
 
 
+/*
+ * call-seq:
+ *    conn.backup( label) { |result| ... }   ->  nil
+ *
+ * Call the pg_start_backup() and pg_stop_backup() functions.
+ */
+VALUE
+pgconn_backup( VALUE self, VALUE label)
+{
+    VALUE cmd, arg;
+
+    cmd = rb_str_new2( "select pg_start_backup($1);");
+    arg = rb_ary_new3( 1, label);
+    pgresult_clear( pg_statement_exec( self, cmd, arg));
+    return rb_ensure( rb_yield, Qnil, backup_end, self);
+}
 
 
+VALUE
+backup_end( VALUE self)
+{
+    VALUE cmd;
+
+    cmd = rb_str_new2( "select pg_stop_backup();");
+    pgresult_clear( pg_statement_exec( self, cmd, Qnil));
+    return Qnil;
+}
 
 
 
@@ -841,7 +868,6 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "get_notify", &pgconn_get_notify, 0);
 
 
-
 #define TRANS_DEF( c) rb_define_const( rb_cPgConn, "T_" #c, INT2FIX( PQTRANS_ ## c))
     TRANS_DEF( IDLE);
     TRANS_DEF( ACTIVE);
@@ -863,6 +889,8 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "getline", &pgconn_getline, -1);
     rb_define_alias( rb_cPgConn, "get", "getline");
     rb_define_method( rb_cPgConn, "each_line", &pgconn_each_line, 0);
+
+    rb_define_method( rb_cPgConn, "backup", &pgconn_backup, 1);
 
     ID id_to_a = 0;
 }
