@@ -2,14 +2,16 @@
 #  pgsql.gemspec  --  PgSql Gem specification
 #
 
-def extract_definition name
-  re = /^\s*#\s*define\s+#{name}\s+"([0-9a-zA-Z_.-]+)"/
-  File.open "lib/module.c" do |f|
-    f.each_line { |l|
-      l =~ re and return $1
-    }
+class Gem::Specification
+  def extract_definition name
+    re = /^\s*#\s*define\s+#{name}\s+"([0-9a-zA-Z_.-]+)"/
+    File.open "lib/module.c" do |f|
+      f.each_line { |l|
+        l =~ re and return $1
+      }
+    end
+    nil
   end
-  nil
 end
 
 Gem::Specification.new do |s|
@@ -24,7 +26,7 @@ decided to fork my own project.
 EOT
   s.authors           = [ "Bertram Scharpf"]
   s.email             = "<software@bertram-scharpf.de>"
-  s.homepage          = "http://www.bertram-scharpf.de"
+  s.homepage          = "http://www.bertram-scharpf.de/software/pgsql"
 
   s.requirements      = "PostgreSQL"
   s.add_dependency      "autorake", ">=2.0"
