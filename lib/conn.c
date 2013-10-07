@@ -345,14 +345,15 @@ static const char re_connstr[] =
 void
 connstr_to_hash( VALUE params, VALUE str)
 {
-    VALUE re, match, m;
+    VALUE re, match, k, m;
 
     re = rb_reg_new( re_connstr, sizeof re_connstr - 1, 0);
     if (RTEST( rb_reg_match( re, str))) {
         match = rb_backref_get();
 #define ADD_TO_RES( key, n) \
-    m = rb_reg_nth_match( n, match); \
-    if (!NIL_P( m)) rb_hash_aset( params, ID2SYM( rb_intern( key)), m)
+            k = ID2SYM( rb_intern( key)); m = rb_reg_nth_match( n, match); \
+            if (NIL_P( rb_hash_aref( params, k)) && !NIL_P(m)) \
+                rb_hash_aset( params, k, m)
         ADD_TO_RES( KEY_USER,     1);
         ADD_TO_RES( KEY_PASSWORD, 2);
         ADD_TO_RES( KEY_HOST,     3);
