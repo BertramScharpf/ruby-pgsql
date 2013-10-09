@@ -7,7 +7,7 @@
 #include "conn.h"
 
 
-#define PGSQL_VERSION "1.2.a"
+#define PGSQL_VERSION "1.2"
 
 
 VALUE rb_mPg;
