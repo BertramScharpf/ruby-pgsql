@@ -37,10 +37,12 @@ static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_get_notify( VALUE self);
 
 static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
-static VALUE rescue_transaction( VALUE self);
+static VALUE rollback_transaction( VALUE self);
+static VALUE commit_transaction( VALUE self);
 static VALUE yield_transaction( VALUE self);
 static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
-static VALUE rescue_subtransaction( VALUE ary);
+static VALUE rollback_subtransaction( VALUE ary);
+static VALUE release_subtransaction( VALUE ary);
 static VALUE yield_subtransaction( VALUE ary);
 static VALUE pgconn_transaction_status( VALUE self);
 
@@ -460,11 +462,17 @@ pgconn_transaction( int argc, VALUE *argv, VALUE self)
         rb_raise( rb_ePgConnTrans,
             "Nested transaction block. Use Conn#subtransaction.");
     pgresult_clear( pg_statement_exec( self, cmd, Qnil));
-    return rb_rescue( yield_transaction, self, rescue_transaction, self);
+    return rb_ensure( yield_transaction, self, commit_transaction, self);
 }
 
 VALUE
-rescue_transaction( VALUE self)
+yield_transaction( VALUE self)
+{
+    return rb_rescue( rb_yield, self, rollback_transaction, self);
+}
+
+VALUE
+rollback_transaction( VALUE self)
 {
     pgresult_clear( pg_statement_exec( self, rb_str_new2( "rollback;"), Qnil));
     rb_exc_raise( RB_ERRINFO);
@@ -472,13 +480,14 @@ rescue_transaction( VALUE self)
 }
 
 VALUE
-yield_transaction( VALUE self)
+commit_transaction( VALUE self)
 {
-    VALUE r;
+    struct pgconn_data *c;
 
-    r = rb_yield( self);
-    pgresult_clear( pg_statement_exec( self, rb_str_new2( "commit;"), Qnil));
-    return r;
+    Data_Get_Struct( self, struct pgconn_data, c);
+    if (PQtransactionStatus( c->conn) > PQTRANS_IDLE)
+        pgresult_clear( pg_statement_exec( self, rb_str_new2( "commit;"), Qnil));
+    return Qnil;
 }
 
 
@@ -514,11 +523,17 @@ pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
     rb_str_buf_cat2( cmd, ";");
 
     pgresult_clear( pg_statement_exec( self, cmd, Qnil));
-    return rb_rescue( yield_subtransaction, ya, rescue_subtransaction, ya);
+    return rb_ensure( yield_subtransaction, ya, release_subtransaction, ya);
 }
 
 VALUE
-rescue_subtransaction( VALUE ary)
+yield_subtransaction( VALUE ary)
+{
+    return rb_rescue( rb_yield, ary, rollback_subtransaction, ary);
+}
+
+VALUE
+rollback_subtransaction( VALUE ary)
 {
     VALUE cmd;
 
@@ -526,21 +541,25 @@ rescue_subtransaction( VALUE ary)
     rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
     rb_str_buf_cat2( cmd, ";");
     pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
+    rb_ary_store( ary, 1, Qnil);
     rb_exc_raise( RB_ERRINFO);
     return Qnil;
 }
 
 VALUE
-yield_subtransaction( VALUE ary)
+release_subtransaction( VALUE ary)
 {
-    VALUE r, cmd;
+    VALUE cmd;
+    VALUE n;
 
-    r = rb_yield( ary);
-    cmd = rb_str_buf_new2( "release savepoint ");
-    rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
-    rb_str_buf_cat2( cmd, ";");
-    pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
-    return r;
+    n = rb_ary_entry( ary, 1);
+    if (!NIL_P( n)) {
+        cmd = rb_str_buf_new2( "release savepoint ");
+        rb_str_buf_append( cmd, n);
+        rb_str_buf_cat2( cmd, ";");
+        pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
+    }
+    return Qnil;
 }
 
 
