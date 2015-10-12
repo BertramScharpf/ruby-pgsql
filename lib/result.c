@@ -280,8 +280,8 @@ pgresult_clear( VALUE self)
 
     Data_Get_Struct( self, struct pgresult_data, r);
     if (r->res != NULL) {
-      PQclear( r->res);
-      r->res = NULL;
+        PQclear( r->res);
+        r->res = NULL;
     }
     return Qnil;
 }
