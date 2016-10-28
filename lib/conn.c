@@ -5,6 +5,8 @@
 
 #include "conn.h"
 
+#include "conn_quote.h"
+#include "conn_exec.h"
 
 #if defined( HAVE_HEADER_ST_H)
     #include <st.h>
@@ -454,7 +456,7 @@ pgconn_set_client_encoding( VALUE self, VALUE str)
 {
     StringValue( str);
     if ((PQsetClientEncoding( get_pgconn( self)->conn, RSTRING_PTR( str))) == -1)
-        rb_raise( rb_ePgError, "Invalid encoding name %s", str);
+        rb_raise( rb_ePgError, "Invalid encoding name %s", RSTRING_PTR( str));
     return Qnil;
 }
 
@@ -491,6 +493,8 @@ pgconn_set_externalenc( VALUE self, VALUE enc)
     e = NIL_P( enc) ? rb_to_encoding( enc) : rb_default_external_encoding();
     Data_Get_Struct( self, struct pgconn_data, c);
     c->external = rb_enc_from_encoding( e);
+
+    return Qnil;
 }
 
 /*
@@ -523,6 +527,8 @@ pgconn_set_internalenc( VALUE self, VALUE enc)
     e = NIL_P( enc) ? rb_to_encoding( enc) : rb_default_internal_encoding();
     Data_Get_Struct( self, struct pgconn_data, c);
     c->internal = rb_enc_from_encoding( e);
+
+    return Qnil;
 }
 
 #endif

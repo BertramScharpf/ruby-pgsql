@@ -121,7 +121,7 @@ VALUE
 pgconn_escape_bytea( VALUE self, VALUE str)
 {
     unsigned char *s;
-    int l;
+    size_t l;
     VALUE ret;
 
     if (NIL_P( str))

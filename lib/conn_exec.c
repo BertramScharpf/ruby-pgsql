@@ -69,7 +69,7 @@ static ID id_to_a;
 void
 pg_raise_connexec( struct pgconn_data *c)
 {
-    rb_raise( rb_ePgConnExec, PQerrorMessage( c->conn));
+    rb_raise( rb_ePgConnExec, "%s", PQerrorMessage( c->conn));
 }
 
 
@@ -144,7 +144,7 @@ params_to_strings( VALUE conn, VALUE params, int *len)
 
             q = pgconn_destring( c, pgconn_stringize( conn, *ptr), &n);
             a = ALLOC_N( char, n + 1);
-            for (p = a; *p = n ? *q : '\0'; ++p, ++q, --n)
+            for (p = a; (*p = n ? *q : '\0'); ++p, ++q, --n)
                 ;
             *v = a;
         }

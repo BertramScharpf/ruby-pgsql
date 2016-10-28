@@ -5,6 +5,7 @@
 #include "module.h"
 
 #include "conn.h"
+#include "result.h"
 
 
 #define PGSQL_VERSION "1.3"

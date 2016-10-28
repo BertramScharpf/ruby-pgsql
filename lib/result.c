@@ -513,7 +513,7 @@ pg_fetchrow( struct pgresult_data *r, int num)
     n = PQnfields( r->res);
     if (num < PQntuples( r->res)) {
         row = rb_ary_new2( n);
-        for (i = 0, n; n; ++i, --n)
+        for (i = 0; n; ++i, --n)
             rb_ary_store( row, i, pg_fetchresult( r, num, i));
     } else
         row = Qnil;
