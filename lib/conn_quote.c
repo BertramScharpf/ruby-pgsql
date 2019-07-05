@@ -55,7 +55,7 @@ static VALUE pg_escape_regex;
 VALUE
 pg_currency_class( void)
 {
-    if (NIL_P( rb_cCurrency) && id_currency) {
+    if (id_currency && NIL_P( rb_cCurrency)) {
         if (rb_const_defined( rb_cObject, id_currency))
             rb_cCurrency = rb_const_get( rb_cObject, id_currency);
         id_currency = 0;
@@ -453,7 +453,9 @@ gsub_escape_i( VALUE c, VALUE arg)
  * Call Pg::Conn#escape_bytea first if you want to tell your string is a byte
  * array and the quote that result.
  */
-VALUE pgconn_quote( VALUE self, VALUE obj) { VALUE o, res;
+VALUE pgconn_quote( VALUE self, VALUE obj)
+{
+    VALUE o, res;
 
     o = rb_funcall( self, id_format, 1, obj);
     if (!NIL_P( o))
