@@ -23,6 +23,7 @@ This is not the official PostgreSQL library that was originally written by Guy
 Decoux. As the project wasn't maintained a long time after Guy's decease, I
 decided to fork my own project.
 EOT
+  s.license           = "BSD-2-Clause"
   s.authors           = [ "Bertram Scharpf"]
   s.email             = "<software@bertram-scharpf.de>"
   s.homepage          = "http://www.bertram-scharpf.de/software/pgsql"
