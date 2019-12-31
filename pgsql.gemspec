@@ -16,7 +16,6 @@ end
 
 Gem::Specification.new do |s|
   s.name              = "pgsql"
-  s.rubyforge_project = "NONE"
   s.version           = s.extract_definition "PGSQL_VERSION"
   s.summary           = "PostgreSQL-API for Ruby"
   s.description       = <<EOT
