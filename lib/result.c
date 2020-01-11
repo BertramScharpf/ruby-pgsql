@@ -545,7 +545,7 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
 
             typmod = PQfmod( r->res, col);
             if (typmod == -1 || (typmod - VARHDRSZ) & 0xffff)
-                break;
+                return rb_funcall( Qnil, rb_intern( "BigDecimal"), 1, rb_str_new2( string));
         }
         /* if scale == 0 fall through and return inum */
     case INT8OID:
@@ -557,8 +557,7 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
     case FLOAT4OID:
         return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
     case BOOLOID:
-        return *string == 't' ? Qtrue : Qfalse;
-        /* strchr( "tTyY", *string) != NULL */
+        return strchr( "tTyY", *string) != NULL ? Qtrue : Qfalse;
     case BYTEAOID:
         return rb_str_new2( string);
     default:
@@ -566,8 +565,6 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
     }
     ret = pgconn_mkstring( r->conn, string);
     switch (typ) {
-    case NUMERICOID:
-        return rb_funcall( rb_cBigDecimal, id_new, 1, ret);
     case DATEOID:
         return rb_funcall( rb_cDate, id_parse, 1, ret);
     case TIMEOID:
