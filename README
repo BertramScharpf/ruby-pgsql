@@ -1,9 +1,7 @@
-                         _ 
-   _ __   __ _ ___  __ _| |
-  | '_ \ / _` / __|/ _` | |
-  | |_) | (_| \__ \ (_| | |
-  | .__/ \__, |___/\__, |_|
-  |_|    |___/        |_|  
+pgsql Ruby Gem
+==============
+:author:   Bertram Scharpf
+:email:    <software@bertram-scharpf.de>
 
 
 == Description
@@ -25,24 +23,27 @@ A PostgreSQL library that was carefully designed.
 
 Write something like this:
 
-  require "pgsql"
+[source,ruby]
+----
+require "pgsql"
 
-  Pg::Conn.open :dbname => "test1", :user => "jdoe" do |conn|
-    conn.exec "SELECT * FROM mytable;" do |result|
-      result.each { |row|
-          l = row.join ", "
-              ...
-      }
-    end
-    cmd = <<-ENDSQL
-      SELECT * FROM mytable WHERE num=$1::INTEGER;
-    ENDSQL
-    conn.query cmd, 42 do |row|
-      l = row.join ", "
-          ...
-    end
-    ...
+Pg::Conn.open :dbname => "test1", :user => "jdoe" do |conn|
+  conn.exec "SELECT * FROM mytable;" do |result|
+    result.each { |row|
+        l = row.join ", "
+            ...
+    }
   end
+  cmd = <<-ENDSQL
+    SELECT * FROM mytable WHERE num=$1::INTEGER;
+  ENDSQL
+  conn.query cmd, 42 do |row|
+    l = row.join ", "
+        ...
+  end
+  ...
+end
+----
 
 
 == Thanks
@@ -50,3 +51,4 @@ Write something like this:
 In the remembrance of Guy Decoux.
 
 
+// vim:set ft=asciidoc :
