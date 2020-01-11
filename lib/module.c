@@ -15,8 +15,7 @@ VALUE rb_mPg;
 VALUE rb_ePgError;
 
 
-/********************************************************************
- *
+/*
  * Document-module: Pg
  *
  * The module to enclose everything.
@@ -25,8 +24,7 @@ VALUE rb_ePgError;
  * connection.
  */
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Error
  *
  * Generic PostgreSQL error.

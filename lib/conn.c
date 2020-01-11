@@ -200,7 +200,7 @@ pgconn_alloc( VALUE cls)
 }
 
 /*
- * Document-method: connect
+ * Document-method: Pg::Conn.connect
  *
  * call-seq:
  *     Pg::Conn.connect( hash)        ->  conn
@@ -241,7 +241,7 @@ pgconn_s_parse( VALUE cls, VALUE str)
 
 
 /*
- * Document-method: new
+ * Document-method: Pg::Conn.new
  *
  * call-seq:
  *     Pg::Conn.new( hash)        ->   conn
@@ -814,23 +814,20 @@ notice_receiver( void *self, const PGresult *result)
 
 
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Conn::Failed
  *
  * Error while establishing a connection to the PostgreSQL server.
  */
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Conn::Invalid
  *
  * Invalid (closed) connection.
  */
 
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Conn
  *
  * The class to access a PostgreSQL database.
@@ -848,10 +845,6 @@ notice_receiver( void *self, const PGresult *result)
 void
 Init_pgsql_conn( void)
 {
-#ifdef RDOC_NEEDS_THIS
-    rb_mPg = rb_define_module( "Pg");
-#endif
-
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
     rb_ePgConnFailed  = rb_define_class_under( rb_cPgConn, "Failed",  rb_ePgError);

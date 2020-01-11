@@ -840,24 +840,21 @@ backup_end( VALUE self)
 
 
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Conn::ExecError
  *
  * Error while querying from a PostgreSQL connection.
  */
 
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Conn::TransactionError
  *
  * Nested transaction blocks.  Use savepoints.
  */
 
 
-/********************************************************************
- *
+/*
  * Document-class: Pg::Conn::CopyError
  *
  * Nested transaction blocks.  Use savepoints.

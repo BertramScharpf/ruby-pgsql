@@ -54,7 +54,6 @@ EOT
                           LICENSE
                         )
 
-  s.has_rdoc          = true
-  s.rdoc_options.concat %w(--charset utf-8 --main README)
+  s.rdoc_options.concat %w(--main README)
 end
 
