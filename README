@@ -5,9 +5,11 @@
   | .__/ \__, |___/\__, |_|
   |_|    |___/        |_|  
 
+
 == Description
 
 A PostgreSQL library that was carefully designed.
+
 
 == Features
 
@@ -18,6 +20,7 @@ A PostgreSQL library that was carefully designed.
 * Full PostgreSQL quoting support
 * Built-in transactions and savepoints by Ruby blocks
 
+
 == Example
 
 Write something like this:
@@ -25,14 +28,14 @@ Write something like this:
   require "pgsql"
 
   Pg::Conn.open :dbname => "test1", :user => "jdoe" do |conn|
-    conn.exec "select * from mytable;" do |result|
+    conn.exec "SELECT * FROM mytable;" do |result|
       result.each { |row|
           l = row.join ", "
               ...
       }
     end
     cmd = <<-ENDSQL
-      select * from mytable where num=$1::integer;
+      SELECT * FROM mytable WHERE num=$1::INTEGER;
     ENDSQL
     conn.query cmd, 42 do |row|
       l = row.join ", "
@@ -41,7 +44,9 @@ Write something like this:
     ...
   end
 
+
 == Thanks
 
 In the remembrance of Guy Decoux.
+
 

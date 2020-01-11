@@ -207,7 +207,7 @@ pgconn_exec( int argc, VALUE *argv, VALUE self)
  * Use Pg::Conn#fetch to fetch the results after you waited for data.
  *
  *   Pg::Conn.connect do |conn|
- *     conn.send "select pg_sleep(3), * from t;" do
+ *     conn.send "SELECT pg_sleep(3), * FROM t;" do
  *       ins = [ conn.socket]
  *       loop do
  *         r = IO.select ins, nil, nil, 0.5
@@ -474,7 +474,7 @@ yield_transaction( VALUE self)
 VALUE
 rollback_transaction( VALUE self)
 {
-    pgresult_clear( pg_statement_exec( self, rb_str_new2( "rollback;"), Qnil));
+    pgresult_clear( pg_statement_exec( self, rb_str_new2( "ROLLBACK;"), Qnil));
     rb_exc_raise( RB_ERRINFO);
     return Qnil;
 }
@@ -486,7 +486,7 @@ commit_transaction( VALUE self)
 
     Data_Get_Struct( self, struct pgconn_data, c);
     if (PQtransactionStatus( c->conn) > PQTRANS_IDLE)
-        pgresult_clear( pg_statement_exec( self, rb_str_new2( "commit;"), Qnil));
+        pgresult_clear( pg_statement_exec( self, rb_str_new2( "COMMIT;"), Qnil));
     return Qnil;
 }
 
@@ -595,7 +595,7 @@ pgconn_transaction_status( VALUE self)
  * Write lines into a +COPY+ command.  See +stringize_line+ for how to build
  * standard lines.
  *
- *   conn.copy_stdin "copy t from stdin;" do
+ *   conn.copy_stdin "COPY t FROM STDIN;" do
  *      ary = ...
  *      l = stringize_line ary
  *      conn.put l
@@ -700,7 +700,7 @@ pgconn_putline( VALUE self, VALUE arg)
  * Read lines from a +COPY+ command.  The form of the lines depends
  * on the statement's parameters.
  *
- *   conn.copy_stdout "copy t to stdout;" do
+ *   conn.copy_stdout "COPY t TO STDOUT;" do
  *     l = conn.getline
  *     ary = l.split /\t/
  *     ary.map! { |x|
@@ -821,7 +821,7 @@ pgconn_backup( VALUE self, VALUE label)
 {
     VALUE cmd, arg;
 
-    cmd = rb_str_new2( "select pg_start_backup($1);");
+    cmd = rb_str_new2( "SELECT pg_start_backup($1);");
     arg = rb_ary_new3( 1, label);
     pgresult_clear( pg_statement_exec( self, cmd, arg));
     return rb_ensure( rb_yield, Qnil, backup_end, self);
@@ -833,7 +833,7 @@ backup_end( VALUE self)
 {
     VALUE cmd;
 
-    cmd = rb_str_new2( "select pg_stop_backup();");
+    cmd = rb_str_new2( "SELECT pg_stop_backup();");
     pgresult_clear( pg_statement_exec( self, cmd, Qnil));
     return Qnil;
 }

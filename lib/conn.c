@@ -775,14 +775,14 @@ pgconn_untrace( VALUE self)
  * == Example
  *
  *   conn.exec <<-EOT
- *     create or replace function noise() returns void as $$
- *     begin
- *       raise notice 'Hi!';
- *     end;
- *     $$ language plpgsql;
+ *     CREATE OR REPLACE FUNCTION noise() RETURNS VOID AS $$
+ *     BEGIN
+ *       RAISE NOTICE 'Hi!';
+ *     END;
+ *     $$ LANGUAGE plpgsql;
  *   EOT
  *   conn.on_notice { |e| puts e.inspect }
- *   conn.exec "select noise();"
+ *   conn.exec "SELECT noise();"
  */
 VALUE
 pgconn_on_notice( VALUE self)
@@ -839,7 +839,7 @@ notice_receiver( void *self, const PGresult *result)
  *
  *    require "pgsql"
  *    conn = Pg::Conn.open :dbname => "test1"
- *    res = conn.exec "select * from mytable;"
+ *    res = conn.exec "SELECT * FROM mytable;"
  *
  * See the Pg::Result class for information on working with the results of a
  * query.
