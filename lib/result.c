@@ -57,8 +57,6 @@ static VALUE pgresult_cmdstatus( VALUE self);
 static VALUE pgresult_oid( VALUE self);
 
 
-static VALUE rb_cBigDecimal;
-
 static VALUE rb_cPgResult;
 static VALUE rb_ePgResError;
 
@@ -539,6 +537,7 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
 
     typ = PQftype( r->res, col);
     cls = Qnil;
+    ret = Qnil;
     switch (typ) {
     case NUMERICOID:
         {
@@ -550,35 +549,45 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
                 break;
             }
         }
-        /* if scale == 0 fall through and return inum */
+        /* fall through if scale == 0 */
     case INT8OID:
     case INT4OID:
     case INT2OID:
     case OIDOID:
         ret = rb_cstr_to_inum( string, 10, 0);
+        break;
     case FLOAT8OID:
     case FLOAT4OID:
         ret = rb_float_new( rb_cstr_to_dbl( string, Qfalse));
+        break;
     case BOOLOID:
         ret = strchr( "tTyY", *string) != NULL ? Qtrue : Qfalse;
+        break;
     case BYTEAOID:
         ret = rb_str_new2( string);
-
+        break;
     case DATEOID:
         cls = rb_cDate;
+        break;
     case TIMEOID:
     case TIMETZOID:
         cls = rb_cTime;
+        break;
     case TIMESTAMPOID:
     case TIMESTAMPTZOID:
         cls = rb_cDateTime;
+        break;
     case CASHOID:
-        cls = pg_currency_class();
+        cls = pg_monetary_class();
+        break;
     default:
         break;
     }
-    if (RTEST( cls))
-        ret = rb_funcall( cls, id_parse, 1, pgconn_mkstring( r->conn, string));
+    if (NIL_P( ret)) {
+        ret = pgconn_mkstring( r->conn, string);
+        if (RTEST( cls))
+            ret = rb_funcall( cls, id_parse, 1, ret);
+    }
     return ret;
 }
 
@@ -802,7 +811,6 @@ void
 Init_pgsql_result( void)
 {
     rb_require( "bigdecimal");
-    rb_cBigDecimal = rb_const_get( rb_cObject, rb_intern( "BigDecimal"));
 
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
 

@@ -10,10 +10,9 @@
 
 extern VALUE rb_cDate;
 extern VALUE rb_cDateTime;
-extern VALUE rb_cCurrency;
 
 
-extern VALUE pg_currency_class( void);
+extern VALUE pg_monetary_class( void);
 
 
 extern VALUE pgconn_stringize( VALUE self, VALUE obj);

@@ -6,7 +6,7 @@
 #include "conn_quote.h"
 
 
-extern VALUE pg_currency_class( void);
+extern VALUE pg_monetary_class( void);
 
 static VALUE pgconn_format( VALUE self, VALUE obj);
 
@@ -37,30 +37,58 @@ static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
 
 VALUE rb_cDate;
 VALUE rb_cDateTime;
-VALUE rb_cCurrency;
+
+static VALUE rb_cMoney;
 
 static ID id_format;
 static ID id_iso8601;
 static ID id_raw;
 static ID id_to_postgres;
 static ID id_gsub;
-static ID id_currency;
+
+static int lookup_monetary;
 
 static VALUE pg_string_null;
 static VALUE pg_string_bsl_N;
 static VALUE pg_escape_regex;
 
 
+static const char *monetary[] = { "Money", "Monetary", "Amount", "Currency"};
 
+/*
+ * Document-class: Pg::Money
+ *
+ * The class the PostgreSQL-builtin type +MONEY+ wil be mapped to.
+ * If not set, some global classes will be searched
+ * (+Money+, +Monetary+, +Amount+, +Currency+) and the constant will be
+ * set to that.
+ *
+ * Set this constant to your own class before you do the first query,
+ * or set it to +nil+ to inhibit the auto-detect.
+ *
+ * The resulting class must have a method +parse+ to build a new object
+ * from a string. It may respond to +raw+ which overwrites +to_s+.
+ *
+ */
 VALUE
-pg_currency_class( void)
+pg_monetary_class( void)
 {
-    if (id_currency && NIL_P( rb_cCurrency)) {
-        if (rb_const_defined( rb_cObject, id_currency))
-            rb_cCurrency = rb_const_get( rb_cObject, id_currency);
-        id_currency = 0;
+    if (lookup_monetary) {
+        ID id_MONEY = rb_intern( "Money");
+        if (rb_const_defined( rb_mPg, id_MONEY))
+            rb_cMoney = rb_const_get( rb_mPg, id_MONEY);
+        else {
+            int i;
+            for (i = 0; i < (sizeof monetary) / sizeof (char *) && NIL_P( rb_cMoney); i++) {
+                ID id = rb_intern( monetary[ i]);
+                if (rb_const_defined( rb_cObject, id))
+                    rb_cMoney = rb_const_get( rb_cObject, id);
+            }
+            rb_const_set( rb_mPg, id_MONEY, rb_cMoney);
+        }
+        lookup_monetary = 0;
     }
-    return rb_cCurrency;
+    return rb_cMoney;
 }
 
 
@@ -264,7 +292,7 @@ pgconn_stringize( VALUE self, VALUE obj)
                     result = rb_obj_as_string( obj);
                 else if   (co == rb_cDateTime)
                     result = rb_obj_as_string( obj);
-                else if   (co == pg_currency_class() &&
+                else if   (co == pg_monetary_class() &&
                                     rb_respond_to( obj, id_raw))
                     result = rb_funcall( obj, id_raw, 0);
                 else if   (rb_respond_to( obj, id_to_postgres)) {
@@ -496,7 +524,7 @@ VALUE pgconn_quote( VALUE self, VALUE obj)
                 } else if (co == rb_cDateTime) {
                     res = rb_obj_as_string( obj);
                     type = "timestamptz";
-                } else if (co == pg_currency_class() &&
+                } else if (co == pg_monetary_class() &&
                                     rb_respond_to( obj, id_raw)) {
                     res = rb_funcall( obj, id_raw, 0);
                     StringValue( res);
@@ -628,7 +656,7 @@ Init_pgsql_conn_quote( void)
     rb_require( "time");
     rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
     rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
-    rb_cCurrency   = Qnil;
+    rb_cMoney      = Qnil;
 
 #ifdef RDOC_NEEDS_THIS
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
@@ -662,7 +690,7 @@ Init_pgsql_conn_quote( void)
     id_to_postgres = rb_intern( "to_postgres");
     id_gsub        = rb_intern( "gsub");
 
-    id_currency    = rb_intern( "Currency");
+    lookup_monetary = 1;
 
     pg_string_null  = rb_str_new2( "NULL");  rb_global_variable( &pg_string_null);   rb_str_freeze( pg_string_null);
     pg_string_bsl_N = rb_str_new2( "\\N");   rb_global_variable( &pg_string_bsl_N);  rb_str_freeze( pg_string_bsl_N);
