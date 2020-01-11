@@ -525,7 +525,7 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
 {
     char *string;
     Oid typ;
-    VALUE ret;
+    VALUE cls, ret;
 
     if (PQgetisnull( r->res, row, col))
         return Qnil;
@@ -538,47 +538,48 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
         return pgconn_mkstring( r->conn, string);
 
     typ = PQftype( r->res, col);
+    cls = Qnil;
     switch (typ) {
     case NUMERICOID:
         {
             int typmod;
 
             typmod = PQfmod( r->res, col);
-            if (typmod == -1 || (typmod - VARHDRSZ) & 0xffff)
-                return rb_funcall( Qnil, rb_intern( "BigDecimal"), 1, rb_str_new2( string));
+            if (typmod == -1 || (typmod - VARHDRSZ) & 0xffff) {
+                ret = rb_funcall( Qnil, rb_intern( "BigDecimal"), 1, rb_str_new2( string));
+                break;
+            }
         }
         /* if scale == 0 fall through and return inum */
     case INT8OID:
     case INT4OID:
     case INT2OID:
     case OIDOID:
-        return rb_cstr_to_inum( string, 10, 0);
+        ret = rb_cstr_to_inum( string, 10, 0);
     case FLOAT8OID:
     case FLOAT4OID:
-        return rb_float_new( rb_cstr_to_dbl( string, Qfalse));
+        ret = rb_float_new( rb_cstr_to_dbl( string, Qfalse));
     case BOOLOID:
-        return strchr( "tTyY", *string) != NULL ? Qtrue : Qfalse;
+        ret = strchr( "tTyY", *string) != NULL ? Qtrue : Qfalse;
     case BYTEAOID:
-        return rb_str_new2( string);
+        ret = rb_str_new2( string);
+
+    case DATEOID:
+        cls = rb_cDate;
+    case TIMEOID:
+    case TIMETZOID:
+        cls = rb_cTime;
+    case TIMESTAMPOID:
+    case TIMESTAMPTZOID:
+        cls = rb_cDateTime;
+    case CASHOID:
+        cls = pg_currency_class();
     default:
         break;
     }
-    ret = pgconn_mkstring( r->conn, string);
-    switch (typ) {
-    case DATEOID:
-        return rb_funcall( rb_cDate, id_parse, 1, ret);
-    case TIMEOID:
-    case TIMETZOID:
-        return rb_funcall( rb_cTime, id_parse, 1, ret);
-    case TIMESTAMPOID:
-    case TIMESTAMPTZOID:
-        return rb_funcall( rb_cDateTime, id_parse, 1, ret);
-    case CASHOID:
-        return RTEST( pg_currency_class()) ?
-                rb_funcall( rb_cCurrency, id_parse, 1, ret) : ret;
-    default:
-        return ret;
-    }
+    if (RTEST( cls))
+        ret = rb_funcall( cls, id_parse, 1, pgconn_mkstring( r->conn, string));
+    return ret;
 }
 
 /*
