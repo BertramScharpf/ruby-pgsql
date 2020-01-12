@@ -108,8 +108,8 @@ pg_monetary_class( void)
  *   class MyConn < Pg::Conn
  *     def format obj
  *       case obj
- *         when Currency then obj.to_s_by_locale
- *         else               obj
+ *         when Money then obj.to_s_by_locale
+ *         else            obj
  *       end
  *     end
  *   end
