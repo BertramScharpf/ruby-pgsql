@@ -34,7 +34,6 @@ static void  quote_all( VALUE self, VALUE ary, VALUE res);
 static VALUE pgconn_quote_identifier( VALUE self, VALUE value);
 
 
-
 VALUE rb_cDate;
 VALUE rb_cDateTime;
 
@@ -652,8 +651,6 @@ pgconn_quote_identifier( VALUE self, VALUE str)
 void
 Init_pgsql_conn_quote( void)
 {
-    rb_require( "date");
-    rb_require( "time");
     rb_cDate       = rb_const_get( rb_cObject, rb_intern( "Date"));
     rb_cDateTime   = rb_const_get( rb_cObject, rb_intern( "DateTime"));
     rb_cMoney      = Qnil;

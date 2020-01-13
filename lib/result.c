@@ -810,8 +810,6 @@ pgresult_oid( VALUE self)
 void
 Init_pgsql_result( void)
 {
-    rb_require( "bigdecimal");
-
     rb_cPgResult = rb_define_class_under( rb_mPg, "Result", rb_cObject);
 
 

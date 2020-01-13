@@ -845,6 +845,15 @@ notice_receiver( void *self, const PGresult *result)
 void
 Init_pgsql_conn( void)
 {
+    {
+        ID id_require;
+
+        id_require = rb_intern( "require");
+        rb_funcall( Qnil, id_require, 1, rb_str_new2( "date"));
+        rb_funcall( Qnil, id_require, 1, rb_str_new2( "time"));
+        rb_funcall( Qnil, id_require, 1, rb_str_new2( "bigdecimal"));
+    }
+
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 
     rb_ePgConnFailed  = rb_define_class_under( rb_cPgConn, "Failed",  rb_ePgError);
