@@ -6,29 +6,29 @@
 
 require "autorake/mkconfig"
 
+Autorake::Builder.verbose = :keep
+
 Autorake.configure {
 
   extending_ruby
 
   if RUBY_VERSION < "1.9" then
-    have_header "ruby.h"
-    have_header "rubyio.h"
-    have_header "st.h"
+    need_header "ruby.h"
+    need_header "rubyio.h"
+    need_header "st.h"
   else
-    have_header "ruby/ruby.h"
-    have_header "ruby/io.h"
+    need_header "ruby/ruby.h"
+    need_header "ruby/io.h"
   end
 
   incdir :postgres,        `pg_config --pkgincludedir`
   incdir :postgres_server, `pg_config --includedir-server`
 
-  have_library "crypto"
-  have_library "ssl"
-  have_library "pq"
+  need_library "pq"
 
-  have_header "postgres.h"
-  have_header "libpq-fe.h"
-  have_header "catalog/pg_type.h"
+  need_header "postgres.h"
+  need_header "libpq-fe.h"
+  need_header "catalog/pg_type.h"
 
   have_func "rb_errinfo"
   have_func "rb_io_stdio_file"

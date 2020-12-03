@@ -18,15 +18,9 @@
 #endif
 #include "undef.h"
 
-#ifdef HAVE_HEADER_POSTGRES_H
-    #include <postgres.h>
-#endif
-#ifdef HAVE_HEADER_LIBPQ_FE_H
-    #include <libpq-fe.h>
-#endif
-#ifdef HAVE_HEADER_CATALOG_PG_TYPE_H
-    #include <catalog/pg_type.h>
-#endif
+#include <postgres.h>
+#include <libpq-fe.h>
+#include <catalog/pg_type.h>
 #include "undef.h"
 
 
