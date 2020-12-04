@@ -257,9 +257,6 @@ pgconn_fetch( VALUE self)
 VALUE
 yield_or_return_result( VALUE result)
 {
-    struct pgresult_data *r;
-
-    Data_Get_Struct( result, struct pgresult_data, r);
     return rb_block_given_p() ?
         rb_ensure( rb_yield, result, pgresult_clear, result) : result;
 }
