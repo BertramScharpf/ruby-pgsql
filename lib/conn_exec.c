@@ -9,13 +9,6 @@
 #include "result.h"
 
 
-#ifdef HAVE_FUNC_RB_ERRINFO
-    #define RB_ERRINFO (rb_errinfo())
-#else
-    #define RB_ERRINFO ruby_errinfo
-#endif
-
-
 static void pg_raise_connexec( struct pgconn_data *c);
 
 static VALUE pg_statement_exec( VALUE conn, VALUE cmd, VALUE par);

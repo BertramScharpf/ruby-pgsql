@@ -28,7 +28,6 @@ Autorake.configure {
   need_header "libpq-fe.h"
   need_header "catalog/pg_type.h"
 
-  have_func "rb_errinfo"
   have_func "rb_io_stdio_file"
   have_func "rb_locale_encoding"
 
