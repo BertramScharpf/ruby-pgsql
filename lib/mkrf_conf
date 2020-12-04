@@ -6,8 +6,6 @@
 
 require "autorake/mkconfig"
 
-Autorake::Builder.verbose = :keep
-
 Autorake.configure {
 
   extending_ruby

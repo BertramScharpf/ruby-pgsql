@@ -166,8 +166,6 @@ free_strings( char **strs, int len)
 void
 pg_parse_parameters( int argc, VALUE *argv, VALUE *cmd, VALUE *par)
 {
-    int len;
-
     rb_scan_args( argc, argv, "1*", cmd, par);
     StringValue( *cmd);
     if (RARRAY_LEN( *par) <= 0)
@@ -244,7 +242,6 @@ pgconn_fetch( VALUE self)
 {
     struct pgconn_data *c;
     PGresult *result;
-    VALUE res;
 
     Data_Get_Struct( self, struct pgconn_data, c);
     pg_check_conninvalid( c);
@@ -908,6 +905,6 @@ Init_pgsql_conn_exec( void)
 
     rb_define_method( rb_cPgConn, "backup", &pgconn_backup, 1);
 
-    ID id_to_a = 0;
+    id_to_a = 0;
 }
 

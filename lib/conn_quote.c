@@ -199,11 +199,11 @@ pgconn_unescape_bytea( VALUE self, VALUE obj)
     size_t l;
     VALUE ret;
 
-    if (NIL_P( obj))
-        return Qnil;
 #ifdef RUBY_ENCODING
     rb_scan_args( argc, argv, "11", &obj, &enc);
 #endif
+    if (NIL_P( obj))
+        return Qnil;
     StringValue( obj);
 
     s = PQunescapeBytea( (unsigned char *) RSTRING_PTR( obj), &l);
@@ -319,7 +319,7 @@ pgconn_stringize_line( VALUE self, VALUE ary)
     VALUE a;
     VALUE *p;
     int l;
-    VALUE ret, s;
+    VALUE ret;
 
     a = rb_check_convert_type( ary, T_ARRAY, "Array", "to_ary");
     if (NIL_P(a))
@@ -411,13 +411,13 @@ dquote_string( VALUE str)
 VALUE
 stringize_array( VALUE self, VALUE result, VALUE ary)
 {
-    long i, j;
+    long i;
     VALUE *o;
     VALUE cf, co;
     VALUE r;
 
     cf = Qundef;
-    for (o = RARRAY_PTR( ary), j = RARRAY_LEN( ary); j; ++o, --j) {
+    for (o = RARRAY_PTR( ary), i = RARRAY_LEN( ary); i; ++o, --i) {
         co = CLASS_OF( *o);
         if (cf == Qundef)
             cf = co;
@@ -584,12 +584,12 @@ quote_string( VALUE conn, VALUE str)
 VALUE
 quote_array( VALUE self, VALUE result, VALUE ary)
 {
-    long i, j;
+    long i;
     VALUE *o;
     VALUE cf, co;
 
     cf = Qundef;
-    for (o = RARRAY_PTR( ary), j = RARRAY_LEN( ary); j; ++o, --j) {
+    for (o = RARRAY_PTR( ary), i = RARRAY_LEN( ary); i; ++o, --i) {
         co = CLASS_OF( *o);
         if (cf == Qundef)
             cf = co;

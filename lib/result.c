@@ -11,9 +11,6 @@
 static void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
 static VALUE pgreserror_new( VALUE result, VALUE cmd, VALUE par);
 
-static VALUE pgreserror_command( VALUE self);
-static VALUE pgreserror_params(  VALUE self);
-
 static struct pgresult_data *pgreserror_result( VALUE self);
 static VALUE pgreserror_status(  VALUE self);
 static VALUE pgreserror_sqlst(   VALUE self);
@@ -25,7 +22,6 @@ static VALUE pgreserror_diag(    VALUE self, VALUE field);
 
 static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
 
-static void pgresult_mark( struct pgresult_data *ptr);
 static void pgresult_free( struct pgresult_data *ptr);
 extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par);
 
@@ -213,13 +209,6 @@ pgresult_s_translate_results_set( VALUE cls, VALUE fact)
 }
 
 
-
-void
-pgresult_mark( struct pgresult_data *ptr)
-{
-    rb_gc_mark( ptr->fields);
-    rb_gc_mark( ptr->indices);
-}
 
 void
 pgresult_free( struct pgresult_data *ptr)
