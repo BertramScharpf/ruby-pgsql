@@ -10,14 +10,9 @@ Autorake.configure {
 
   extending_ruby
 
-  if RUBY_VERSION < "1.9" then
-    need_header "ruby.h"
-    need_header "rubyio.h"
-    need_header "st.h"
-  else
-    need_header "ruby/ruby.h"
-    need_header "ruby/io.h"
-  end
+  need_header "ruby/ruby.h"
+  need_header "ruby/io.h"
+
 
   incdir :postgres,        `pg_config --pkgincludedir`
   incdir :postgres_server, `pg_config --includedir-server`
