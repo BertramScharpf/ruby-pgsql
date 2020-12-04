@@ -37,11 +37,11 @@ static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_get_notify( VALUE self);
 
 static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
-static VALUE rollback_transaction( VALUE self);
+static VALUE rollback_transaction( VALUE self, VALUE err);
 static VALUE commit_transaction( VALUE self);
 static VALUE yield_transaction( VALUE self);
 static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
-static VALUE rollback_subtransaction( VALUE ary);
+static VALUE rollback_subtransaction( VALUE ary, VALUE err);
 static VALUE release_subtransaction( VALUE ary);
 static VALUE yield_subtransaction( VALUE ary);
 static VALUE pgconn_transaction_status( VALUE self);
@@ -469,10 +469,10 @@ yield_transaction( VALUE self)
 }
 
 VALUE
-rollback_transaction( VALUE self)
+rollback_transaction( VALUE self, VALUE err)
 {
     pgresult_clear( pg_statement_exec( self, rb_str_new2( "ROLLBACK;"), Qnil));
-    rb_exc_raise( RB_ERRINFO);
+    rb_exc_raise( err);
     return Qnil;
 }
 
@@ -530,7 +530,7 @@ yield_subtransaction( VALUE ary)
 }
 
 VALUE
-rollback_subtransaction( VALUE ary)
+rollback_subtransaction( VALUE ary, VALUE err)
 {
     VALUE cmd;
 
@@ -539,7 +539,7 @@ rollback_subtransaction( VALUE ary)
     rb_str_buf_cat2( cmd, ";");
     pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
     rb_ary_store( ary, 1, Qnil);
-    rb_exc_raise( RB_ERRINFO);
+    rb_exc_raise( err);
     return Qnil;
 }
 
@@ -622,7 +622,7 @@ put_end( VALUE self)
     Data_Get_Struct( self, struct pgconn_data, c);
     /*
      * I would like to hand over something like
-     *     RSTRING_PTR( rb_obj_as_string( RB_ERRINFO))
+     *     RSTRING_PTR( rb_obj_as_string( rb_errinfo()))
      * here but when execution is inside a rescue block
      * the error info will be non-null even though the
      * exception just has been caught.
