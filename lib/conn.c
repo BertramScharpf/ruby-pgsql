@@ -31,7 +31,7 @@ static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
 static void  connstr_to_hash( VALUE params, VALUE str);
 static void  connstr_passwd( VALUE self, VALUE params);
-static VALUE connstr_getparam( VALUE yielded, VALUE params);
+static VALUE connstr_getparam( RB_BLOCK_CALL_FUNC_ARGLIST( yielded, params));
 
 static VALUE pgconn_close( VALUE self);
 static VALUE pgconn_reset( VALUE self);
@@ -393,7 +393,8 @@ connstr_passwd( VALUE self, VALUE params)
     }
 }
 
-VALUE connstr_getparam( VALUE yielded, VALUE params)
+VALUE
+connstr_getparam( RB_BLOCK_CALL_FUNC_ARGLIST( yielded, params))
 {
     return rb_hash_aref( params, yielded);
 }

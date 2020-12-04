@@ -23,7 +23,8 @@ extern VALUE pgconn_for_copy( VALUE self, VALUE str);
 static int   needs_dquote_string( VALUE str);
 static VALUE dquote_string( VALUE str);
 static VALUE stringize_array( VALUE self, VALUE result, VALUE ary);
-static VALUE gsub_escape_i( VALUE c, VALUE arg);
+static VALUE gsub_escape_i( RB_BLOCK_CALL_FUNC_ARGLIST( c, arg));
+
 
 static VALUE pgconn_quote( VALUE self, VALUE obj);
 static VALUE pgconn_quote_all( int argc, VALUE *argv, VALUE self);
@@ -438,7 +439,7 @@ stringize_array( VALUE self, VALUE result, VALUE ary)
 
 
 VALUE
-gsub_escape_i( VALUE c, VALUE arg)
+gsub_escape_i( RB_BLOCK_CALL_FUNC_ARGLIST( c, arg))
 {
     const char *r;
 
