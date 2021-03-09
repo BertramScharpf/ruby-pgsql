@@ -26,11 +26,11 @@ extern VALUE pgconn_mkstring( struct pgconn_data *ptr, const char *str);
 extern VALUE pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len);
 static VALUE pgconn_alloc( VALUE cls);
 static VALUE pgconn_s_connect( int argc, VALUE *argv, VALUE cls);
-static VALUE pgconn_s_parse( VALUE cls, VALUE str);
 static VALUE pgconn_init( int argc, VALUE *argv, VALUE self);
 static int   set_connect_params( st_data_t key, st_data_t val, st_data_t args);
-static void  connstr_to_hash( VALUE params, VALUE str);
-static void  connstr_passwd( VALUE self, VALUE params);
+static VALUE connstr_sym_dbname( void);
+static VALUE connstr_sym_password( void);
+static void  connstr_passwd( VALUE self, VALUE orig_params, VALUE *params);
 static VALUE connstr_getparam( RB_BLOCK_CALL_FUNC_ARGLIST( yielded, params));
 
 static VALUE pgconn_close( VALUE self);
@@ -70,6 +70,9 @@ VALUE rb_cPgConn;
 
 static VALUE rb_ePgConnFailed;
 static VALUE rb_ePgConnInvalid;
+
+static VALUE sym_dbname   = Qundef;
+static VALUE sym_password = Qundef;
 
 
 
@@ -221,24 +224,6 @@ pgconn_s_connect( int argc, VALUE *argv, VALUE cls)
         rb_ensure( rb_yield, pgconn, pgconn_close, pgconn) : pgconn;
 }
 
-/*
- * call-seq:
- *   Pg::Conn.parse( str)    -> hash
- *
- * Parse a connection string and return a hash with keys <code>:dbname</code>,
- * <code>:user</code>, <code>:host</code>, etc.
- *
- */
-VALUE
-pgconn_s_parse( VALUE cls, VALUE str)
-{
-    VALUE params;
-
-    params = rb_hash_new();
-    connstr_to_hash( params, str);
-    return params;
-}
-
 
 /*
  * Document-method: Pg::Conn.new
@@ -252,23 +237,39 @@ pgconn_s_parse( VALUE cls, VALUE str)
  *
  *   c = Pg::Conn.new :dbname => "movies", :host => "jupiter", ...
  *
- * The most common parameters may be given in a URL-like
- * connection string:
+ * If the +str+ argument is given but no further parameters,
+ * the PQconnectdb() (not PQconnectdbParams()) function will be called.
+ * If further arguments are present, the +str+ argument will be made into
+ * the "dbname" parameter, but without overwriting an existing one.
  *
- *   "user:password@host:port/dbname"
+ * The "dbname" parameter may be a +conninfo+ string as described in the
+ * PostgreSQL documentation:
  *
- * Any of these parts may be omitted.  If there is no slash, the part after the
- * @ sign will be read as database name.
+ *   c = Pg::Conn.new "postgresql://user:password@host:port/dbname"
+ *   c = Pg::Conn.new "postgres://user:password@host:port/dbname"
+ *   c = Pg::Conn.new "dbname=... host=... user=..."
+ *
+ * The password may be specified as an extra parameter:
+ *
+ *   c = Pg::Conn.new "postgresql://user@host/dbname", password: "verysecret"
  *
  * If the password is the empty string, and there is either an instance method
  * or a class method <code>password?</code>, that method will be asked. This
  * method may ask <code>yield :user</code> or <code>yield :dbname</code> and so
  * on to get the connection parameters.
  *
+ *   class Pg::Conn
+ *     def password?
+ *       "tercesyrev".reverse
+ *     end
+ *   end
+ *   c = Pg::Conn.new "postgresql://user@host/dbname", password: ""
+ *
  * See the PostgreSQL documentation for a full list:
  * [http://www.postgresql.org/docs/current/interactive/libpq-connect.html#LIBPQ-PQCONNECTDBPARAMS]
  *
  * On failure, a +Pg::Error+ exception will be raised.
+ *
  */
 VALUE
 pgconn_init( int argc, VALUE *argv, VALUE self)
@@ -280,32 +281,44 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     struct pgconn_data *c;
 
     if (rb_scan_args( argc, argv, "02", &str, &params) < 2)
-        if (TYPE( str) != T_STRING) {
+        if (TYPE( str) == T_HASH) {
             params = str;
             str = Qnil;
         }
-    if      (NIL_P( params))
-        params = rb_hash_new();
-    else if (TYPE( params) != T_HASH)
-        params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
-    else
-        params = rb_obj_dup( params);
-    if (!NIL_P( str))
-        connstr_to_hash( params, str);
-    connstr_passwd( self, params);
 
     Data_Get_Struct( self, struct pgconn_data, c);
 
-    l = RHASH_SIZE( params) + 1;
-    keywords = (const char **) ALLOCA_N( char *, l);
-    values   = (const char **) ALLOCA_N( char *, l);
-    ptrs[ 0] = keywords;
-    ptrs[ 1] = values;
-    ptrs[ 2] = (const char **) c;
-    st_foreach( RHASH_TBL( params), &set_connect_params, (st_data_t) ptrs);
-    *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
+    if (NIL_P( params)) {
+        StringValue( str);
+        c->conn = PQconnectdb( RSTRING_PTR( str));
+    } else {
+        int expand_dbname;
+        VALUE orig_params = params;
 
-    c->conn = PQconnectdbParams( keywords, values, 1);
+        if (TYPE( params) != T_HASH)
+            params = rb_convert_type( params, T_HASH, "Hash", "to_hash");
+
+        if (!NIL_P( str) && NIL_P( rb_hash_aref( params, connstr_sym_dbname()))) {
+            if (params == orig_params)
+                params = rb_obj_dup( params);
+            rb_hash_aset( params, sym_dbname, str);
+            expand_dbname = 1;
+        } else
+            expand_dbname = 0;
+
+        connstr_passwd( self, orig_params, &params);
+
+        l = RHASH_SIZE( params) + 1;
+        keywords = (const char **) ALLOCA_N( char *, l);
+        values   = (const char **) ALLOCA_N( char *, l);
+        ptrs[ 0] = keywords;
+        ptrs[ 1] = values;
+        ptrs[ 2] = (const char **) c;
+        st_foreach( RHASH_TBL( params), &set_connect_params, (st_data_t) ptrs);
+        *(ptrs[ 0]) = *(ptrs[ 1]) = NULL;
+
+        c->conn = PQconnectdbParams( keywords, values, expand_dbname);
+    }
     if (PQstatus( c->conn) == CONNECTION_BAD)
         rb_exc_raise( pgconnfailederror_new( c, params));
 
@@ -331,50 +344,29 @@ set_connect_params( st_data_t key, st_data_t val, st_data_t args)
     return ST_CONTINUE;
 }
 
-static const char re_connstr[] =
-    "\\A"
-    "(?:(.*?)(?::(.*))?@)?"             /* user:passwd@     */
-    "(?:(.*?)(?::(\\d+))?/)?(?:(.+))?"  /* host:port/dbname */
-    "\\z"
-;
-
-#define KEY_USER     "user"
-#define KEY_PASSWORD "password"
-#define KEY_HOST     "host"
-#define KEY_PORT     "port"
-#define KEY_DBNAME   "dbname"
-
-void
-connstr_to_hash( VALUE params, VALUE str)
+VALUE
+connstr_sym_dbname( void)
 {
-    VALUE re, match, k, m;
-
-    re = rb_reg_new( re_connstr, sizeof re_connstr - 1, 0);
-    if (RTEST( rb_reg_match( re, str))) {
-        match = rb_backref_get();
-#define ADD_TO_RES( key, n) \
-            k = ID2SYM( rb_intern( key)); m = rb_reg_nth_match( n, match); \
-            if (NIL_P( rb_hash_aref( params, k)) && !NIL_P(m)) \
-                rb_hash_aset( params, k, m)
-        ADD_TO_RES( KEY_USER,     1);
-        ADD_TO_RES( KEY_PASSWORD, 2);
-        ADD_TO_RES( KEY_HOST,     3);
-        ADD_TO_RES( KEY_PORT,     4);
-        ADD_TO_RES( KEY_DBNAME,   5);
-#undef ADD_TO_RES
-    } else
-        rb_raise( rb_eArgError, "Invalid connection: %s", RSTRING_PTR( str));
+    if (sym_dbname == Qundef)
+        sym_dbname = ID2SYM( rb_intern( "dbname"));
+    return sym_dbname;
 }
 
-void
-connstr_passwd( VALUE self, VALUE params)
+VALUE
+connstr_sym_password( void)
 {
-    static VALUE sym_password = Qundef;
+    if (sym_password == Qundef)
+        sym_password = ID2SYM( rb_intern( "password"));
+    return sym_password;
+}
+
+
+void
+connstr_passwd( VALUE self, VALUE orig_params, VALUE *params)
+{
     VALUE pw;
 
-    if (sym_password == Qundef)
-        sym_password = ID2SYM( rb_intern( KEY_PASSWORD));
-    pw = rb_hash_aref( params, sym_password);
+    pw = rb_hash_aref( *params, connstr_sym_password());
     if (TYPE( pw) == T_STRING && RSTRING_LEN( pw) == 0) {
         static ID id_password_q = 0;
         VALUE pwobj;
@@ -386,10 +378,13 @@ connstr_passwd( VALUE self, VALUE params)
             pwobj = self;
         if (rb_respond_to( CLASS_OF( self), id_password_q))
             pwobj = CLASS_OF( self);
-        if (pwobj != Qundef)
-            rb_hash_aset( params, sym_password,
+        if (pwobj != Qundef) {
+            if (*params == orig_params)
+                *params = rb_obj_dup( *params);
+            rb_hash_aset( *params, sym_password,
                 rb_block_call( pwobj, id_password_q, 0, NULL,
-                                                &connstr_getparam, params));
+                                                &connstr_getparam, *params));
+        }
     }
 }
 
@@ -866,7 +861,6 @@ Init_pgsql_conn( void)
     rb_define_alloc_func( rb_cPgConn, pgconn_alloc);
     rb_define_singleton_method( rb_cPgConn, "connect", pgconn_s_connect, -1);
     rb_define_alias( rb_singleton_class( rb_cPgConn), "open", "connect");
-    rb_define_singleton_method( rb_cPgConn, "parse", pgconn_s_parse, 1);
     rb_define_method( rb_cPgConn, "initialize", &pgconn_init, -1);
     rb_define_method( rb_cPgConn, "close", &pgconn_close, 0);
     rb_define_alias( rb_cPgConn, "finish", "close");
