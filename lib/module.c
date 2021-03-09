@@ -8,7 +8,7 @@
 #include "result.h"
 
 
-#define PGSQL_VERSION "1.6"
+#define PGSQL_VERSION "1.7"
 
 
 VALUE rb_mPg;
