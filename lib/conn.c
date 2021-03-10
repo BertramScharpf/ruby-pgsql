@@ -74,6 +74,7 @@ static VALUE rb_ePgConnInvalid;
 static VALUE sym_dbname   = Qundef;
 static VALUE sym_password = Qundef;
 
+static ID id_to_s;
 
 
 void
@@ -289,8 +290,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
     Data_Get_Struct( self, struct pgconn_data, c);
 
     if (NIL_P( params)) {
-        StringValue( str);
-        c->conn = PQconnectdb( RSTRING_PTR( str));
+        c->conn = PQconnectdb( RSTRING_PTR( rb_funcall( str, id_to_s, 0)));
     } else {
         int expand_dbname;
         VALUE orig_params = params;
@@ -899,6 +899,8 @@ Init_pgsql_conn( void)
     rb_define_method( rb_cPgConn, "untrace", &pgconn_untrace, 0);
 
     rb_define_method( rb_cPgConn, "on_notice", &pgconn_on_notice, 0);
+
+    id_to_s = rb_intern( "to_s");
 
     Init_pgsql_conn_quote();
     Init_pgsql_conn_exec();
