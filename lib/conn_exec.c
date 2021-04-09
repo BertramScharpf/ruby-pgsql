@@ -24,7 +24,7 @@ static VALUE yield_or_return_result( VALUE res);
 static VALUE clear_resultqueue( VALUE self);
 
 static VALUE pgconn_query(         int argc, VALUE *argv, VALUE self);
-static VALUE pgconn_select_one(    int argc, VALUE *argv, VALUE self);
+static VALUE pgconn_select_row(    int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_select_value(  int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_get_notify( VALUE self);
@@ -303,13 +303,13 @@ pgconn_query( int argc, VALUE *argv, VALUE self)
 
 /*
  * call-seq:
- *   conn.select_one( query, *bind_values)
+ *   conn.select_row( query, *bind_values)
  *
  * Return the first row of the query results.
  * Equivalent to <code>conn.query( query, *bind_values).first</code>.
  */
 VALUE
-pgconn_select_one( int argc, VALUE *argv, VALUE self)
+pgconn_select_row( int argc, VALUE *argv, VALUE self)
 {
     VALUE cmd, par;
     VALUE res;
@@ -327,7 +327,7 @@ pgconn_select_one( int argc, VALUE *argv, VALUE self)
  *   conn.select_value( query, *bind_values)
  *
  * Return the first value of the first row of the query results.
- * Equivalent to conn.query( query, *bind_values).first.first
+ * Equivalent to conn.query( query, *bind_values).first&.first
  */
 VALUE
 pgconn_select_value( int argc, VALUE *argv, VALUE self)
@@ -348,6 +348,7 @@ pgconn_select_value( int argc, VALUE *argv, VALUE self)
  * call-seq:
  *   conn.select_values( query, *bind_values)
  *
+ * Return the all values over all rows as one array.
  * Equivalent to conn.query( query, *bind_values).flatten
  */
 VALUE
@@ -865,7 +866,7 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "fetch", &pgconn_fetch, 0);
 
     rb_define_method( rb_cPgConn, "query", &pgconn_query, -1);
-    rb_define_method( rb_cPgConn, "select_one", &pgconn_select_one, -1);
+    rb_define_method( rb_cPgConn, "select_row", &pgconn_select_row, -1);
     rb_define_method( rb_cPgConn, "select_value", &pgconn_select_value, -1);
     rb_define_method( rb_cPgConn, "select_values", &pgconn_select_values, -1);
     rb_define_method( rb_cPgConn, "get_notify", &pgconn_get_notify, 0);
