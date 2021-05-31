@@ -431,17 +431,17 @@ pgconn_transaction( int argc, VALUE *argv, VALUE self)
     int p;
 
     rb_scan_args( argc, argv, "02", &ser, &ro);
-    cmd = rb_str_buf_new2( "begin");
+    cmd = rb_str_buf_new2( "BEGIN");
     p = 0;
     if (!NIL_P( ser)) {
-        rb_str_buf_cat2( cmd, " isolation level ");
-        rb_str_buf_cat2( cmd, RTEST(ser) ? "serializable" : "read committed");
+        rb_str_buf_cat2( cmd, " ISOLATION LEVEL ");
+        rb_str_buf_cat2( cmd, RTEST(ser) ? "SERIALIZABLE" : "READ COMMITTED");
         p++;
     }
     if (!NIL_P( ro)) {
         if (p) rb_str_buf_cat2( cmd, ",");
-        rb_str_buf_cat2( cmd, " read ");
-        rb_str_buf_cat2( cmd, (RTEST(ro)  ? "only" : "write"));
+        rb_str_buf_cat2( cmd, " READ ");
+        rb_str_buf_cat2( cmd, (RTEST(ro)  ? "ONLY" : "WRITE"));
     }
     rb_str_buf_cat2( cmd, ";");
 
@@ -502,7 +502,7 @@ pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
     if (a > 1)
         sp = rb_str_format(RARRAY_LEN(par), RARRAY_PTR(par), sp);
 
-    cmd = rb_str_buf_new2( "savepoint ");
+    cmd = rb_str_buf_new2( "SAVEPOINT ");
     q = pgconn_destring( c, sp, &n);
     p = PQescapeIdentifier( c->conn, q, n);
     rb_str_buf_cat2( cmd, p);
@@ -525,7 +525,7 @@ rollback_subtransaction( VALUE ary, VALUE err)
 {
     VALUE cmd;
 
-    cmd = rb_str_buf_new2( "rollback to savepoint ");
+    cmd = rb_str_buf_new2( "ROLLBACK TO SAVEPOINT ");
     rb_str_buf_append( cmd, rb_ary_entry( ary, 1));
     rb_str_buf_cat2( cmd, ";");
     pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));
@@ -542,7 +542,7 @@ release_subtransaction( VALUE ary)
 
     n = rb_ary_entry( ary, 1);
     if (!NIL_P( n)) {
-        cmd = rb_str_buf_new2( "release savepoint ");
+        cmd = rb_str_buf_new2( "RELEASE SAVEPOINT ");
         rb_str_buf_append( cmd, n);
         rb_str_buf_cat2( cmd, ";");
         pgresult_clear( pg_statement_exec( rb_ary_entry( ary, 0), cmd, Qnil));

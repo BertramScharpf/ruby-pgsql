@@ -26,7 +26,7 @@ class PgBackup
       system "rm -f #@wal/*"
       n = Time.now.strftime "backup_%Y%m%d-%H%M%S"
       Pg::Conn.connect dbname: "postgres", user: "pgsql" do |db|
-        db.exec "set client_min_messages = error;"
+        db.exec "SET client_min_messages = error;"
         db.backup n do
           system "rsync -par --delete #@home/data #@backup"
         end

@@ -472,7 +472,7 @@ gsub_escape_i( RB_BLOCK_CALL_FUNC_ARGLIST( c, arg))
  * This method is to prevent you from saying something like <code>"insert into
  * ... (E'#{conn.stringize obj}', ...);"</code>.  It is more efficient to say
  *
- *   conn.exec "insert into ... (#{conn.quote obj}, ...);"
+ *   conn.exec "INSERT INTO ... (#{conn.quote obj}, ...);"
  *
  * Your self-defined classes will be checked whether they have a method named
  * +to_postgres+.  If that doesn't exist the object will be converted by
@@ -517,25 +517,25 @@ VALUE pgconn_quote( VALUE self, VALUE obj)
                 co = CLASS_OF( obj);
                 if        (co == rb_cTime) {
                     res = rb_funcall( obj, id_iso8601, 0);
-                    type = "timestamptz";
+                    type = "TIMESTAMPTZ";
                 } else if (co == rb_cDate) {
                     res = rb_obj_as_string( obj);
-                    type = "date";
+                    type = "DATE";
                 } else if (co == rb_cDateTime) {
                     res = rb_obj_as_string( obj);
-                    type = "timestamptz";
+                    type = "TIMESTAMPTZ";
                 } else if (co == pg_monetary_class() &&
                                     rb_respond_to( obj, id_raw)) {
                     res = rb_funcall( obj, id_raw, 0);
                     StringValue( res);
-                    type = "money";
+                    type = "MONEY";
                 } else if (rb_respond_to( obj, id_to_postgres)) {
                     res = rb_funcall( obj, id_to_postgres, 0);
                     StringValue( res);
                     type = NULL;
                 } else {
                     res = rb_obj_as_string( obj);
-                    type = "unknown";
+                    type = "UNKNOWN";
                 }
                 res = quote_string( self, res);
                 if (type != NULL) {
