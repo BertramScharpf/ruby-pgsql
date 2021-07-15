@@ -585,7 +585,7 @@ pgconn_transaction_status( VALUE self)
  *
  *   conn.copy_stdin "COPY t FROM STDIN;" do
  *      ary = ...
- *      l = stringize_line ary
+ *      l = conn.stringize_line ary
  *      conn.put l
  *   end
  *
