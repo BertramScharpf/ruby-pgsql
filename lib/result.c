@@ -241,6 +241,8 @@ pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par)
         case PGRES_TUPLES_OK:
         case PGRES_COPY_OUT:
         case PGRES_COPY_IN:
+        case PGRES_COPY_BOTH:
+        case PGRES_SINGLE_TUPLE:
             break;
         case PGRES_BAD_RESPONSE:
         case PGRES_NONFATAL_ERROR:

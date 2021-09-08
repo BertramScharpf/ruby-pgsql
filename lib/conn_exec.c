@@ -8,6 +8,8 @@
 #include "conn_quote.h"
 #include "result.h"
 
+#include <math.h>
+
 
 static void pg_raise_connexec( struct pgconn_data *c);
 
@@ -19,7 +21,8 @@ static void pg_parse_parameters( int argc, VALUE *argv, VALUE *cmd, VALUE *par);
 
 static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
 static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
-static VALUE pgconn_fetch( VALUE obj);
+static VALUE pgconn_fetch( int argc, VALUE *argv, VALUE conn);
+static void wait_for_pgsocket( PGconn *c, VALUE to);
 static VALUE yield_or_return_result( VALUE res);
 static VALUE clear_resultqueue( VALUE self);
 
@@ -30,9 +33,9 @@ static VALUE pgconn_select_values( int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_get_notify( VALUE self);
 
 static VALUE pgconn_transaction( int argc, VALUE *argv, VALUE self);
-static VALUE rollback_transaction( VALUE self, VALUE err);
+static VALUE rollback_transaction( VALUE conn, VALUE err);
 static VALUE commit_transaction( VALUE self);
-static VALUE yield_transaction( VALUE self);
+static VALUE yield_transaction( VALUE conn);
 static VALUE pgconn_subtransaction( int argc, VALUE *argv, VALUE self);
 static VALUE rollback_subtransaction( VALUE ary, VALUE err);
 static VALUE release_subtransaction( VALUE ary);
@@ -53,6 +56,7 @@ static VALUE backup_end( VALUE conn);
 
 
 static VALUE rb_ePgConnExec;
+static VALUE rb_ePgConnTimeout;
 static VALUE rb_ePgConnTrans;
 static VALUE rb_ePgConnCopy;
 
@@ -72,8 +76,7 @@ pg_statement_exec( VALUE conn, VALUE cmd, VALUE par)
     struct pgconn_data *c;
     PGresult *result;
 
-    Data_Get_Struct( conn, struct pgconn_data, c);
-    pg_check_conninvalid( c);
+    c = get_pgconn( conn);
     if (NIL_P( par))
         result = PQexec( c->conn, pgconn_destring( c, cmd, NULL));
     else {
@@ -97,8 +100,7 @@ pg_statement_send( VALUE conn, VALUE cmd, VALUE par)
     struct pgconn_data *c;
     int res;
 
-    Data_Get_Struct( conn, struct pgconn_data, c);
-    pg_check_conninvalid( c);
+    c = get_pgconn( conn);
     if (NIL_P( par))
         res = PQsendQuery( c->conn, pgconn_destring( c, cmd, NULL));
     else {
@@ -112,6 +114,7 @@ pg_statement_send( VALUE conn, VALUE cmd, VALUE par)
     }
     if (res <= 0)
         pg_raise_connexec( c);
+    PQsetSingleRowMode( c->conn);
 }
 
 char **
@@ -123,7 +126,7 @@ params_to_strings( VALUE conn, VALUE params, int *len)
     char **values, **v;
     char *a;
 
-    Data_Get_Struct( conn, struct pgconn_data, c);
+    c = get_pgconn( conn);
     ptr = RARRAY_PTR( params);
     *len = l = RARRAY_LEN( params);
     values = ALLOC_N( char *, l);
@@ -195,18 +198,29 @@ pgconn_exec( int argc, VALUE *argv, VALUE self)
  * Sends an asynchronous SQL query request specified by +sql+ to the
  * PostgreSQL server.
  *
+ * This sets the query into single row mode. You have to call +Pg::Conn#fetch+
+ * what will yield one-row results. You may cancel the delivery by breaking
+ * the loop.
+ *
  * Use Pg::Conn#fetch to fetch the results after you waited for data.
  *
  *   Pg::Conn.connect do |conn|
  *     conn.send "SELECT pg_sleep(3), * FROM t;" do
- *       ins = [ conn.socket]
- *       loop do
- *         r = IO.select ins, nil, nil, 0.5
- *         break if r
- *         puts Time.now
- *       end
- *       res = conn.fetch
- *       res.each { |w| puts w.inspect }
+ *       conn.fetch { |res|
+ *         puts res.first.inspect
+ *         break if (rand 3) < 1
+ *       }
+ *     end
+ *   end
+ *
+ * Multiple select statements will not be separated by an empty result
+ * or something similar. Query twice if you want to separate them.
+ *
+ *   Pg::Conn.connect do |conn|
+ *     conn.send "SELECT 33; SELECT 'foo';" do
+ *       conn.fetch { |res|
+ *         puts res.first.inspect
+ *       }
  *     end
  *   end
  */
@@ -222,8 +236,7 @@ pgconn_send( int argc, VALUE *argv, VALUE self)
 
 /*
  * call-seq:
- *    conn.fetch()                   -> result or nil
- *    conn.fetch() { |result| ... }  -> obj
+ *    conn.fetch( timeout = nil) { |result| ... }  -> obj
  *
  * Fetches the results of the previous Pg::Conn#send call.
  * See there for an example.
@@ -231,20 +244,70 @@ pgconn_send( int argc, VALUE *argv, VALUE self)
  * The result will be +nil+ if there are no more results.
  */
 VALUE
-pgconn_fetch( VALUE self)
+pgconn_fetch( int argc, VALUE *argv, VALUE conn)
 {
     struct pgconn_data *c;
     PGresult *result;
+    VALUE to;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
-    pg_check_conninvalid( c);
+    rb_scan_args( argc, argv, "01", &to);
+
+    c = get_pgconn( conn);
+    wait_for_pgsocket( c->conn, to);
     if (PQconsumeInput( c->conn) == 0)
         pg_raise_connexec( c);
-    if (PQisBusy( c->conn) > 0)
-        return Qnil;
-    result = PQgetResult( c->conn);
-    return result == NULL ? Qnil :
-        yield_or_return_result( pgresult_new( result, c, Qnil, Qnil));
+    if (PQisBusy( c->conn) == 0)
+        while ((result = PQgetResult( c->conn)) != NULL) {
+            if (PQntuples( result) == 0)
+                PQclear( result);
+            else
+                rb_yield( pgresult_new( result, c, Qnil, Qnil));
+        }
+    return Qnil;
+}
+
+void
+wait_for_pgsocket( PGconn *c, VALUE to)
+{
+    int fd;
+    fd_set readset;
+    struct timeval tv, *ptv;
+
+    fd = PQsocket( c);
+
+    FD_ZERO(&readset);
+    FD_SET(fd, &readset);
+
+    ptv = NULL;
+    if (!NIL_P( to)) {
+        int type = TYPE( to);
+        if (type == T_FIXNUM) {
+            tv.tv_sec = FIX2LONG( to);
+            tv.tv_usec = 0;
+        } else {
+            double x;
+            switch (type) {
+            case T_FLOAT:
+                x = RFLOAT_VALUE( to);
+                break;
+            case T_BIGNUM:
+                x = rb_big2dbl( to);
+                break;
+            case T_RATIONAL:
+                x = rb_num2dbl( to);
+                break;
+            default:
+                x = RFLOAT_VALUE( rb_funcall( to, rb_intern( "to_f"), 0));
+                break;
+            }
+            tv.tv_sec  = floor( x);
+            tv.tv_usec = round( (x-tv.tv_sec)*1000000);
+        }
+        ptv = &tv;
+    }
+
+    if (select( fd+1, &readset, NULL, NULL, ptv) < 0 || !FD_ISSET( fd, &readset))
+        rb_raise( rb_ePgConnTimeout, "Wait for data timed out.");
 }
 
 VALUE
@@ -255,14 +318,31 @@ yield_or_return_result( VALUE result)
 }
 
 VALUE
-clear_resultqueue( VALUE self)
+clear_resultqueue( VALUE conn)
 {
     struct pgconn_data *c;
     PGresult *result;
+    int cancelled;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
-    while ((result = PQgetResult( c->conn)) != NULL)
+    c = get_pgconn( conn);
+    cancelled = 0;
+    while ((result = PQgetResult( c->conn)) != NULL) {
         PQclear( result);
+        if (!cancelled) {
+            char errbuf[ 256];
+            PGcancel *cancel;
+            int ret;
+
+            cancel = PQgetCancel( c->conn);
+            if (cancel == NULL)
+                rb_raise( rb_ePgConnTrans, "Could not get cancel object.");
+            ret = PQcancel( cancel, errbuf, sizeof errbuf);
+            PQfreeCancel( cancel);
+            if (ret == 0)
+                rb_raise( rb_ePgConnTrans, "Cancel of sent query failed: %s", errbuf);
+            cancelled = 1;
+        }
+    }
     return Qnil;
 }
 
@@ -387,14 +467,14 @@ pgconn_select_values( int argc, VALUE *argv, VALUE self)
  * Returns a notifier.  If there is no unprocessed notifier, it returns +nil+.
  */
 VALUE
-pgconn_get_notify( VALUE self)
+pgconn_get_notify( VALUE conn)
 {
     struct pgconn_data *c;
     PGnotify *notify;
     VALUE rel, pid, ext;
     VALUE ret;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( conn);
     if (PQconsumeInput( c->conn) == 0)
         pg_raise_connexec( c);
     notify = PQnotifies( c->conn);
@@ -423,7 +503,7 @@ pgconn_get_notify( VALUE self)
  *
  */
 VALUE
-pgconn_transaction( int argc, VALUE *argv, VALUE self)
+pgconn_transaction( int argc, VALUE *argv, VALUE conn)
 {
     struct pgconn_data *c;
     VALUE ser, ro;
@@ -445,36 +525,36 @@ pgconn_transaction( int argc, VALUE *argv, VALUE self)
     }
     rb_str_buf_cat2( cmd, ";");
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( conn);
     if (PQtransactionStatus( c->conn) > PQTRANS_IDLE)
         rb_raise( rb_ePgConnTrans,
             "Nested transaction block. Use Conn#subtransaction.");
-    pgresult_clear( pg_statement_exec( self, cmd, Qnil));
-    return rb_ensure( yield_transaction, self, commit_transaction, self);
+    pgresult_clear( pg_statement_exec( conn, cmd, Qnil));
+    return rb_ensure( yield_transaction, conn, commit_transaction, conn);
 }
 
 VALUE
-yield_transaction( VALUE self)
+yield_transaction( VALUE conn)
 {
-    return rb_rescue( rb_yield, self, rollback_transaction, self);
+    return rb_rescue( rb_yield, conn, rollback_transaction, conn);
 }
 
 VALUE
-rollback_transaction( VALUE self, VALUE err)
+rollback_transaction( VALUE conn, VALUE err)
 {
-    pgresult_clear( pg_statement_exec( self, rb_str_new2( "ROLLBACK;"), Qnil));
+    pgresult_clear( pg_statement_exec( conn, rb_str_new2( "ROLLBACK;"), Qnil));
     rb_exc_raise( err);
     return Qnil;
 }
 
 VALUE
-commit_transaction( VALUE self)
+commit_transaction( VALUE conn)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( conn);
     if (PQtransactionStatus( c->conn) > PQTRANS_IDLE)
-        pgresult_clear( pg_statement_exec( self, rb_str_new2( "COMMIT;"), Qnil));
+        pgresult_clear( pg_statement_exec( conn, rb_str_new2( "COMMIT;"), Qnil));
     return Qnil;
 }
 
@@ -496,7 +576,7 @@ pgconn_subtransaction( int argc, VALUE *argv, VALUE self)
     char *p;
     int n;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     a = rb_scan_args( argc, argv, "1*", &sp, &par);
     StringValue( sp);
     if (a > 1)
@@ -570,7 +650,7 @@ pgconn_transaction_status( VALUE self)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     return INT2FIX( PQtransactionStatus( c->conn));
 }
 
@@ -610,7 +690,7 @@ put_end( VALUE self)
     int r;
     PGresult *res;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     /*
      * I would like to hand over something like
      *     RSTRING_PTR( rb_obj_as_string( rb_errinfo()))
@@ -670,7 +750,7 @@ pgconn_putline( VALUE self, VALUE arg)
         str = t;
     }
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     p = pgconn_destring( c, str, &l);
     r = PQputCopyData( c->conn, p, l);
     if (r < 0)
@@ -722,7 +802,7 @@ get_end( VALUE self)
     struct pgconn_data *c;
     PGresult *res;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     if ((res = PQgetResult( c->conn)) != NULL)
         pgresult_new( res, c, Qnil, Qnil);
     return Qnil;
@@ -753,7 +833,7 @@ pgconn_getline( int argc, VALUE *argv, VALUE self)
 
     async = rb_scan_args( argc, argv, "01", &as) > 0 && !NIL_P( as) ? 1 : 0;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     r = PQgetCopyData( c->conn, &b, async);
     if (r > 0) {
         VALUE ret;
@@ -787,7 +867,7 @@ pgconn_each_line( VALUE self)
     int r;
     VALUE s;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    c = get_pgconn( self);
     for (; (r = PQgetCopyData( c->conn, &b, 0)) > 0;) {
         s = pgconn_mkstringn( c, b, r);
         PQfreemem( b);
@@ -857,13 +937,14 @@ Init_pgsql_conn_exec( void)
     rb_cPgConn = rb_define_class_under( rb_mPg, "Conn", rb_cObject);
 #endif
 
-    rb_ePgConnExec  = rb_define_class_under( rb_cPgConn, "ExecError",        rb_ePgError);
-    rb_ePgConnTrans = rb_define_class_under( rb_cPgConn, "TransactionError", rb_ePgError);
-    rb_ePgConnCopy  = rb_define_class_under( rb_cPgConn, "CopyError",        rb_ePgError);
+    rb_ePgConnExec    = rb_define_class_under( rb_cPgConn, "ExecError",        rb_ePgError);
+    rb_ePgConnTimeout = rb_define_class_under( rb_cPgConn, "Timeout",          rb_ePgError);
+    rb_ePgConnTrans   = rb_define_class_under( rb_cPgConn, "TransactionError", rb_ePgError);
+    rb_ePgConnCopy    = rb_define_class_under( rb_cPgConn, "CopyError",        rb_ePgError);
 
     rb_define_method( rb_cPgConn, "exec", &pgconn_exec, -1);
     rb_define_method( rb_cPgConn, "send", &pgconn_send, -1);
-    rb_define_method( rb_cPgConn, "fetch", &pgconn_fetch, 0);
+    rb_define_method( rb_cPgConn, "fetch", &pgconn_fetch, -1);
 
     rb_define_method( rb_cPgConn, "query", &pgconn_query, -1);
     rb_define_method( rb_cPgConn, "select_row", &pgconn_select_row, -1);
