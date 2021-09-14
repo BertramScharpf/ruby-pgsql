@@ -355,7 +355,7 @@ pgconn_for_copy( VALUE self, VALUE obj)
             rb_global_variable( &pg_escape_regex);
         }
         if (RTEST( rb_reg_match( pg_escape_regex, ret)))
-            ret = rb_block_call( ret, id_gsub, 1, &pg_escape_regex, gsub_escape_i, Qnil);
+            ret = rb_block_call( ret, id_gsub, 1, &pg_escape_regex, &gsub_escape_i, Qnil);
     }
     return ret;
 }

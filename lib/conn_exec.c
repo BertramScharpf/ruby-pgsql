@@ -20,11 +20,13 @@ static void free_strings( char **strs, int len);
 static void pg_parse_parameters( int argc, VALUE *argv, VALUE *cmd, VALUE *par);
 
 static VALUE pgconn_exec( int argc, VALUE *argv, VALUE obj);
+static VALUE yield_or_return_result( VALUE res);
 static VALUE pgconn_send( int argc, VALUE *argv, VALUE obj);
 static VALUE pgconn_fetch( int argc, VALUE *argv, VALUE conn);
 static void wait_for_pgsocket( PGconn *c, VALUE to);
-static VALUE yield_or_return_result( VALUE res);
 static VALUE clear_resultqueue( VALUE self);
+static VALUE pgconn_fetch_rows( int argc, VALUE *argv, VALUE conn);
+static VALUE fetch_result_each( RB_BLOCK_CALL_FUNC_ARGLIST( res, arg));
 
 static VALUE pgconn_query(         int argc, VALUE *argv, VALUE self);
 static VALUE pgconn_select_row(    int argc, VALUE *argv, VALUE self);
@@ -61,6 +63,7 @@ static VALUE rb_ePgConnTrans;
 static VALUE rb_ePgConnCopy;
 
 static ID id_to_a;
+static ID id_fetch;
 
 
 void
@@ -190,6 +193,13 @@ pgconn_exec( int argc, VALUE *argv, VALUE self)
     return yield_or_return_result( res);
 }
 
+VALUE
+yield_or_return_result( VALUE result)
+{
+    return rb_block_given_p() ?
+        rb_ensure( rb_yield, result, pgresult_clear, result) : result;
+}
+
 
 /*
  * call-seq:
@@ -213,8 +223,7 @@ pgconn_exec( int argc, VALUE *argv, VALUE self)
  *     end
  *   end
  *
- * Multiple select statements will not be separated by an empty result
- * or something similar. Query twice if you want to separate them.
+ * Multiple select statements will be separated by an empty result.
  *
  *   Pg::Conn.connect do |conn|
  *     conn.send "SELECT 33; SELECT 'foo';" do
@@ -241,7 +250,6 @@ pgconn_send( int argc, VALUE *argv, VALUE self)
  * Fetches the results of the previous Pg::Conn#send call.
  * See there for an example.
  *
- * The result will be +nil+ if there are no more results.
  */
 VALUE
 pgconn_fetch( int argc, VALUE *argv, VALUE conn)
@@ -258,10 +266,10 @@ pgconn_fetch( int argc, VALUE *argv, VALUE conn)
         pg_raise_connexec( c);
     if (PQisBusy( c->conn) == 0)
         while ((result = PQgetResult( c->conn)) != NULL) {
-            if (PQntuples( result) == 0)
-                PQclear( result);
-            else
-                rb_yield( pgresult_new( result, c, Qnil, Qnil));
+            VALUE res;
+
+            res = pgresult_new( result, c, Qnil, Qnil);
+            rb_ensure( rb_yield, res, pgresult_clear, res);
         }
     return Qnil;
 }
@@ -311,13 +319,6 @@ wait_for_pgsocket( PGconn *c, VALUE to)
 }
 
 VALUE
-yield_or_return_result( VALUE result)
-{
-    return rb_block_given_p() ?
-        rb_ensure( rb_yield, result, pgresult_clear, result) : result;
-}
-
-VALUE
 clear_resultqueue( VALUE conn)
 {
     struct pgconn_data *c;
@@ -347,6 +348,37 @@ clear_resultqueue( VALUE conn)
 }
 
 
+/*
+ * call-seq:
+ *    conn.fetch_rows( timeout = nil) { |row| ... }  -> obj
+ *
+ * Fetches the results of the previous Pg::Conn#send call as an array.
+ *
+ * Multiple select statements will _not_ be separated by an empty array or
+ * something similar. Query twice or call +#fetch+ if you want to separate
+ * them.
+ *
+ *   Pg::Conn.connect do |conn|
+ *     conn.send "SELECT 33; SELECT 'foo';" do
+ *       conn.fetch { |row|
+ *         puts row.inspect
+ *       }
+ *     end
+ *   end
+ */
+VALUE
+pgconn_fetch_rows( int argc, VALUE *argv, VALUE conn)
+{
+    if (!id_fetch)
+        id_fetch = rb_intern( "fetch");
+    return rb_block_call( conn, id_fetch, argc, argv, fetch_result_each, Qnil);
+}
+
+VALUE
+fetch_result_each( RB_BLOCK_CALL_FUNC_ARGLIST( res, arg))
+{
+    return pgresult_each( res);
+}
 
 
 /*
@@ -945,6 +977,7 @@ Init_pgsql_conn_exec( void)
     rb_define_method( rb_cPgConn, "exec", &pgconn_exec, -1);
     rb_define_method( rb_cPgConn, "send", &pgconn_send, -1);
     rb_define_method( rb_cPgConn, "fetch", &pgconn_fetch, -1);
+    rb_define_method( rb_cPgConn, "fetch_rows", &pgconn_fetch_rows, -1);
 
     rb_define_method( rb_cPgConn, "query", &pgconn_query, -1);
     rb_define_method( rb_cPgConn, "select_row", &pgconn_select_row, -1);
@@ -977,6 +1010,7 @@ Init_pgsql_conn_exec( void)
 
     rb_define_method( rb_cPgConn, "backup", &pgconn_backup, 1);
 
-    id_to_a = 0;
+    id_to_a  = 0;
+    id_fetch = 0;
 }
 
