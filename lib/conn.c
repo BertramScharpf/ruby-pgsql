@@ -166,7 +166,7 @@ pgconn_mkstring( struct pgconn_data *ptr, const char *str)
     VALUE r;
 
     if (str) {
-        r = rb_tainted_str_new2( str);
+        r = rb_str_new2( str);
         pgconn_encode_out4in( ptr, r);
     } else
         r = Qnil;
@@ -179,7 +179,7 @@ pgconn_mkstringn( struct pgconn_data *ptr, const char *str, int len)
     VALUE r;
 
     if (str) {
-        r = rb_tainted_str_new( str, len);
+        r = rb_str_new( str, len);
         pgconn_encode_out4in( ptr, r);
     } else
         r = Qnil;
@@ -438,7 +438,7 @@ pgconn_client_encoding( VALUE self)
 {
     char *encoding = (char *) pg_encoding_to_char(
                             PQclientEncoding( get_pgconn( self)->conn));
-    return rb_tainted_str_new2( encoding);
+    return rb_str_new2( encoding);
 }
 
 /*

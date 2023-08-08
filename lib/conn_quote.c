@@ -159,7 +159,6 @@ pgconn_escape_bytea( VALUE self, VALUE str)
             (unsigned char *) RSTRING_PTR( str), RSTRING_LEN( str), &l);
     ret = rb_str_new( (char *) s, l - 1);
     PQfreemem( s);
-    OBJ_INFECT( ret, str);
     return ret;
 }
 
@@ -216,7 +215,6 @@ pgconn_unescape_bytea( VALUE self, VALUE obj)
         rb_enc_associate( ret, rb_to_encoding( enc));
 #endif
 
-    OBJ_INFECT( ret, obj);
     return ret;
 }
 
@@ -285,10 +283,9 @@ pgconn_stringize( VALUE self, VALUE obj)
                 VALUE co;
 
                 co = CLASS_OF( obj);
-                if        (co == rb_cTime) {
+                if        (co == rb_cTime)
                     result = rb_funcall( obj, id_iso8601, 0);
-                    OBJ_INFECT( result, obj);
-                } else if (co == rb_cDate)
+                else if (co == rb_cDate)
                     result = rb_obj_as_string( obj);
                 else if   (co == rb_cDateTime)
                     result = rb_obj_as_string( obj);
@@ -298,7 +295,6 @@ pgconn_stringize( VALUE self, VALUE obj)
                 else if   (rb_respond_to( obj, id_to_postgres)) {
                     result = rb_funcall( obj, id_to_postgres, 0);
                     StringValue( result);
-                    OBJ_INFECT( result, obj);
                 } else
                     result = rb_obj_as_string( obj);
             }
@@ -428,10 +424,8 @@ stringize_array( VALUE self, VALUE result, VALUE ary)
             rb_str_buf_cat2( result, ",");
         }
         r = pgconn_stringize( self, *o);
-        if (!NIL_P( *o)) {
+        if (!NIL_P( *o))
             r = dquote_string( r);
-            OBJ_INFECT( result, *o);
-        }
         rb_str_buf_append( result, r);
     }
     return result;
@@ -542,7 +536,6 @@ VALUE pgconn_quote( VALUE self, VALUE obj)
                     rb_str_buf_cat2( res, "::");
                     rb_str_buf_cat2( res, type);
                 }
-                OBJ_INFECT( res, obj);
             }
             break;
     }
@@ -578,7 +571,6 @@ quote_string( VALUE conn, VALUE str)
     res = rb_str_new2( p);
     PQfreemem( p);
     rb_enc_associate( res, rb_enc_get( str));
-    OBJ_INFECT( res, str);
     return res;
 }
 
@@ -643,7 +635,6 @@ pgconn_quote_identifier( VALUE self, VALUE str)
     res = rb_str_new2( p);
     PQfreemem( p);
     rb_enc_associate( res, rb_enc_get( str));
-    OBJ_INFECT( res, str);
     return res;
 }
 
