@@ -29,7 +29,8 @@ EOT
   s.homepage          = "http://www.bertram-scharpf.de/software/pgsql"
 
   s.requirements      = "PostgreSQL"
-  s.add_dependency      "autorake", ">=2.0"
+  s.add_dependency      "autorake", "~>2.0"
+  s.add_dependency      "rake",     "~>13.0"
 
   s.extensions        = "lib/mkrf_conf"
   s.executables       = %w(
