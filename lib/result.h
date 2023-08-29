@@ -18,6 +18,9 @@ struct pgresult_data {
 
 
 
+extern const rb_data_type_t pgresult_data_data_type;
+
+
 extern VALUE pgresult_new( PGresult *result, VALUE conn, VALUE cmd, VALUE par);
 extern VALUE pgresult_clear( VALUE self);
 extern VALUE pgresult_each( VALUE self);

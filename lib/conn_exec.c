@@ -430,7 +430,7 @@ pgconn_select_row( int argc, VALUE *argv, VALUE self)
     pg_parse_parameters( argc, argv, &cmd, &par);
     res = pg_statement_exec( self, cmd, par);
 
-    Data_Get_Struct( res, struct pgresult_data, r);
+    TypedData_Get_Struct( res, struct pgresult_data, &pgresult_data_data_type, r);
     return pg_fetchrow( r, 0);
 }
 
@@ -451,7 +451,7 @@ pgconn_select_value( int argc, VALUE *argv, VALUE self)
     pg_parse_parameters( argc, argv, &cmd, &par);
     res = pg_statement_exec( self, cmd, par);
 
-    Data_Get_Struct( res, struct pgresult_data, r);
+    TypedData_Get_Struct( res, struct pgresult_data, &pgresult_data_data_type, r);
     return PQntuples( r->res) > 0 && PQnfields( r->res) > 0 ?
                     pg_fetchresult( r, 0, 0) : Qnil;
 }
@@ -476,7 +476,7 @@ pgconn_select_values( int argc, VALUE *argv, VALUE self)
     pg_parse_parameters( argc, argv, &cmd, &par);
     res = pg_statement_exec( self, cmd, par);
 
-    Data_Get_Struct( res, struct pgresult_data, r);
+    TypedData_Get_Struct( res, struct pgresult_data, &pgresult_data_data_type, r);
     m = PQntuples( r->res), n = PQnfields( r->res);
     l = m * n;
     if (l == 0)

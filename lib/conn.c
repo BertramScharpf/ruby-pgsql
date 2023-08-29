@@ -122,7 +122,7 @@ pgconn_free( void *ptr)
     struct pgconn_data *pd = ptr;
     if (pd->conn != NULL)
         PQfinish( pd->conn);
-    ruby_xfree( pd);
+    ruby_xfree( ptr);
 }
 
 static size_t

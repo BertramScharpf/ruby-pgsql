@@ -21,7 +21,9 @@ static VALUE pgreserror_diag(    VALUE self, VALUE field);
 
 static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
 
-static void pgresult_free( struct pgresult_data *ptr);
+static void   pgresult_mark( void *ptr);
+static void   pgresult_free( void *ptr);
+static size_t pgresult_memsize( const void *ptr);
 static VALUE pgresult_alloc( VALUE cls);
 extern VALUE pgresult_new( PGresult *result, VALUE conn, VALUE cmd, VALUE par);
 
@@ -64,6 +66,14 @@ static int translate_results = 1;
 
 
 
+const rb_data_type_t pgresult_data_data_type = {
+    "mydata",
+    { &pgresult_mark, &pgresult_free, &pgresult_memsize,},
+    0, 0, RUBY_TYPED_FREE_IMMEDIATELY
+};
+
+
+
 
 VALUE
 pgreserror_new( VALUE result, VALUE cmd, VALUE par)
@@ -71,7 +81,7 @@ pgreserror_new( VALUE result, VALUE cmd, VALUE par)
     struct pgresult_data *r;
     VALUE rse, msg;
 
-    Data_Get_Struct( result, struct pgresult_data, r);
+    TypedData_Get_Struct( result, struct pgresult_data, &pgresult_data_data_type, r);
     msg = pgconn_mkstring( get_pgconn( r->conn), PQresultErrorMessage( r->res));
     rse = rb_class_new_instance( 1, &msg, rb_ePgResError);
     rb_ivar_set( rse, id_result, result);
@@ -87,7 +97,7 @@ pgreserror_result( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( rb_ivar_get( self, id_result), struct pgresult_data, r);
+    TypedData_Get_Struct( rb_ivar_get( self, id_result), struct pgresult_data, &pgresult_data_data_type, r);
     return r;
 }
 
@@ -211,12 +221,29 @@ pgresult_s_translate_results_set( VALUE cls, VALUE fact)
 
 
 void
-pgresult_free( struct pgresult_data *ptr)
+pgresult_mark( void *ptr)
 {
-    if (ptr->res != NULL)
-        PQclear( ptr->res);
-    free( ptr);
+    struct pgresult_data *rd = ptr;
+    rb_gc_mark( rd->conn);
+    rb_gc_mark( rd->fields);
+    rb_gc_mark( rd->indices);
 }
+
+void
+pgresult_free( void *ptr)
+{
+    struct pgresult_data *rd = ptr;
+    if (rd->res != NULL)
+        PQclear( rd->res);
+    ruby_xfree( ptr);
+}
+
+size_t
+pgresult_memsize( const void *ptr)
+{
+    return sizeof (struct pgresult_data);
+}
+
 
 
 VALUE
@@ -225,7 +252,7 @@ pgresult_alloc( VALUE cls)
     struct pgresult_data *r;
     VALUE obj;
 
-    obj = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
+    obj = TypedData_Make_Struct( cls, struct pgresult_data, &pgresult_data_data_type, r);
     r->res     = NULL;
     r->conn    = Qnil;
     r->fields  = Qnil;
@@ -240,7 +267,7 @@ pgresult_new( PGresult *result, VALUE conn, VALUE cmd, VALUE par)
     VALUE res;
 
     res = rb_class_new_instance( 0, NULL, rb_cPgResult);
-    Data_Get_Struct( res, struct pgresult_data, r);
+    TypedData_Get_Struct( res, struct pgresult_data, &pgresult_data_data_type, r);
     r->res     = result;
     r->conn    = conn;
     r->fields  = Qnil;
@@ -277,7 +304,7 @@ pgresult_clear( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     if (r->res != NULL) {
         PQclear( r->res);
         r->res = NULL;
@@ -302,7 +329,7 @@ pgresult_status( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return INT2FIX( PQresultStatus( r->res));
 }
 
@@ -323,7 +350,7 @@ pgresult_fields( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     if (NIL_P( r->fields)) {
         VALUE ary;
         int n, i;
@@ -357,7 +384,7 @@ pgresult_field_indices( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     if (NIL_P( r->indices)) {
         VALUE hsh;
         int n, i;
@@ -389,7 +416,7 @@ pgresult_num_fields( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return INT2FIX( PQnfields( r->res));
 }
 
@@ -410,7 +437,7 @@ pgresult_fieldname( VALUE self, VALUE index)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return pgconn_mkstring( get_pgconn( r->conn), PQfname( r->res, NUM2INT( index)));
 }
 
@@ -433,7 +460,7 @@ pgresult_fieldnum( VALUE self, VALUE name)
     int n;
 
     StringValue( name);
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     n = PQfnumber( r->res, pgconn_destring( get_pgconn( r->conn), name, NULL));
     if (n == -1)
         rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
@@ -458,7 +485,7 @@ pgresult_each( VALUE self)
     struct pgresult_data *r;
     int m, j;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     for (j = 0, m = PQntuples( r->res); m; j++, m--)
         rb_yield( pg_fetchrow( r, j));
     return m ? INT2FIX( m) : Qnil;
@@ -482,7 +509,7 @@ pgresult_aref( int argc, VALUE *argv, VALUE self)
     VALUE aj, ai;
     int j, i;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     a = rb_scan_args( argc, argv, "11", &aj, &ai);
     j = NUM2INT( aj);
     if (j < PQntuples( r->res)) {
@@ -605,7 +632,7 @@ pgresult_num_tuples( VALUE self)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return INT2FIX( PQntuples( r->res));
 }
 
@@ -627,7 +654,7 @@ pgresult_type( VALUE self, VALUE index)
     struct pgresult_data *r;
     int n;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     n = PQftype( r->res, NUM2INT( index));
     return n ? INT2FIX( n) : Qnil;
 }
@@ -649,7 +676,7 @@ pgresult_size( VALUE self, VALUE index)
     struct pgresult_data *r;
     int n;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     n = PQfsize( r->res, NUM2INT( index));
     return n ? INT2FIX( n) : Qnil;
 }
@@ -669,7 +696,7 @@ pgresult_getvalue( VALUE self, VALUE row, VALUE col)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return pg_fetchresult( r, NUM2INT( row), NUM2INT( col));
 }
 
@@ -688,7 +715,7 @@ pgresult_getlength( VALUE self, VALUE row, VALUE col)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return INT2FIX( PQgetlength( r->res, NUM2INT( row), NUM2INT( col)));
 }
 
@@ -706,7 +733,7 @@ pgresult_getisnull( VALUE self, VALUE row, VALUE col)
 {
     struct pgresult_data *r;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     return PQgetisnull( r->res, NUM2INT( row), NUM2INT( col)) ? Qtrue : Qfalse;
 }
 
@@ -749,7 +776,7 @@ pgresult_cmdtuples( VALUE self)
     struct pgresult_data *r;
     char *n;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     n = PQcmdTuples( r->res);
     return *n ? rb_cstr_to_inum( n, 10, 0) : Qnil;
 }
@@ -766,7 +793,7 @@ pgresult_cmdstatus( VALUE self)
     struct pgresult_data *r;
     char *n;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     n = PQcmdStatus( r->res);
     return n ? pgconn_mkstring( get_pgconn( r->conn), n) : Qnil;
 }
@@ -783,7 +810,7 @@ pgresult_oid( VALUE self)
     struct pgresult_data *r;
     Oid n;
 
-    Data_Get_Struct( self, struct pgresult_data, r);
+    TypedData_Get_Struct( self, struct pgresult_data, &pgresult_data_data_type, r);
     n = PQoidValue( r->res);
     return n == InvalidOid ? Qnil : INT2FIX( n);
 }
