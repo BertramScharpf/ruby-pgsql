@@ -8,4 +8,4 @@
 #undef PACKAGE_TARNAME
 #undef PACKAGE_VERSION
 #undef _
-
+#undef restrict
