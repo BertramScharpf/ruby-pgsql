@@ -16,8 +16,9 @@
 extern void pg_check_conninvalid( struct pgconn_data *c);
 static VALUE pgconnfailederror_new( struct pgconn_data *c, VALUE params);
 
-static void  pgconn_mark( struct pgconn_data *ptr);
-static void  pgconn_free( struct pgconn_data *ptr);
+static void   pgconn_mark( void *ptr);
+static void   pgconn_free( void *ptr);
+static size_t pgconn_memsize( const void *ptr);
 extern struct pgconn_data *get_pgconn( VALUE obj);
 static VALUE pgconn_encode_in4out( struct pgconn_data *ptr, VALUE str);
 extern const char *pgconn_destring( struct pgconn_data *ptr, VALUE str, int *len);
@@ -76,6 +77,12 @@ static VALUE sym_password = Qundef;
 
 static ID id_to_s;
 
+static const rb_data_type_t pgconn_data_data_type = {
+    "pgsql:pgconn_data",
+    { &pgconn_mark, &pgconn_free, &pgconn_memsize,},
+    0, 0, RUBY_TYPED_FREE_IMMEDIATELY
+};
+
 
 void
 pg_check_conninvalid( struct pgconn_data *c)
@@ -99,21 +106,29 @@ pgconnfailederror_new( struct pgconn_data *c, VALUE params)
 
 
 void
-pgconn_mark( struct pgconn_data *ptr)
+pgconn_mark( void *ptr)
 {
-    rb_gc_mark( ptr->notice);
+    struct pgconn_data *pd = ptr;
 #ifdef RUBY_ENCODING
-    rb_gc_mark( ptr->external);
-    rb_gc_mark( ptr->internal);
+    rb_gc_mark( pd->external);
+    rb_gc_mark( pd->internal);
 #endif
+    rb_gc_mark( pd->notice);
 }
 
 void
-pgconn_free( struct pgconn_data *ptr)
+pgconn_free( void *ptr)
 {
-    if (ptr->conn != NULL)
-        PQfinish( ptr->conn);
-    free( ptr);
+    struct pgconn_data *pd = ptr;
+    if (pd->conn != NULL)
+        PQfinish( pd->conn);
+    ruby_xfree( pd);
+}
+
+static size_t
+pgconn_memsize( const void *ptr)
+{
+    return sizeof (struct pgconn_data);
 }
 
 struct pgconn_data *
@@ -121,7 +136,7 @@ get_pgconn( VALUE obj)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( obj, struct pgconn_data, c);
+    TypedData_Get_Struct( obj, struct pgconn_data, &pgconn_data_data_type, c);
     pg_check_conninvalid( c);
     return c;
 }
@@ -192,8 +207,7 @@ pgconn_alloc( VALUE cls)
     struct pgconn_data *c;
     VALUE r;
 
-    r = Data_Make_Struct( cls, struct pgconn_data,
-                            &pgconn_mark, &pgconn_free, c);
+    r = TypedData_Make_Struct( cls, struct pgconn_data, &pgconn_data_data_type, c);
     c->conn    = NULL;
 #ifdef RUBY_ENCODING
     c->external = rb_enc_from_encoding( rb_default_external_encoding());
@@ -287,7 +301,7 @@ pgconn_init( int argc, VALUE *argv, VALUE self)
             str = Qnil;
         }
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
 
     if (NIL_P( params)) {
         c->conn = PQconnectdb( RSTRING_PTR( rb_funcall( str, id_to_s, 0)));
@@ -405,7 +419,7 @@ pgconn_close( VALUE self)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
     PQfinish( c->conn);
     c->conn = NULL;
     return Qnil;
@@ -470,7 +484,7 @@ pgconn_externalenc( VALUE self)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
     return c->external;
 }
 
@@ -487,7 +501,7 @@ pgconn_set_externalenc( VALUE self, VALUE enc)
     rb_encoding *e;
 
     e = NIL_P( enc) ? rb_to_encoding( enc) : rb_default_external_encoding();
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
     c->external = rb_enc_from_encoding( e);
 
     return Qnil;
@@ -504,7 +518,7 @@ pgconn_internalenc( VALUE self)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
     return c->internal;
 }
 
@@ -521,7 +535,7 @@ pgconn_set_internalenc( VALUE self, VALUE enc)
     rb_encoding *e;
 
     e = NIL_P( enc) ? rb_to_encoding( enc) : rb_default_internal_encoding();
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
     c->internal = rb_enc_from_encoding( e);
 
     return Qnil;
@@ -785,7 +799,7 @@ pgconn_on_notice( VALUE self)
 {
     struct pgconn_data *c;
 
-    Data_Get_Struct( self, struct pgconn_data, c);
+    TypedData_Get_Struct( self, struct pgconn_data, &pgconn_data_data_type, c);
     if (PQsetNoticeReceiver( c->conn, NULL, NULL) != &notice_receiver) {
         PQsetNoticeReceiver( c->conn, &notice_receiver, (void *) c);
     }
