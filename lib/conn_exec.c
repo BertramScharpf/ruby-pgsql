@@ -93,7 +93,7 @@ pg_statement_exec( VALUE conn, VALUE cmd, VALUE par)
     }
     if (result == NULL)
         pg_raise_connexec( c);
-    return pgresult_new( result, c, cmd, par);
+    return pgresult_new( result, conn, cmd, par);
 }
 
 
@@ -268,7 +268,7 @@ pgconn_fetch( int argc, VALUE *argv, VALUE conn)
         while ((result = PQgetResult( c->conn)) != NULL) {
             VALUE res;
 
-            res = pgresult_new( result, c, Qnil, Qnil);
+            res = pgresult_new( result, conn, Qnil, Qnil);
             rb_ensure( rb_yield, res, pgresult_clear, res);
         }
     return Qnil;
@@ -735,7 +735,7 @@ put_end( VALUE self)
     if (r < 0)
         rb_raise( rb_ePgConnCopy, "Copy from stdin failed to finish.");
     while ((res = PQgetResult( c->conn)) != NULL)
-        pgresult_new( res, c, Qnil, Qnil);
+        pgresult_new( res, self, Qnil, Qnil);
     return Qnil;
 }
 
@@ -836,7 +836,7 @@ get_end( VALUE self)
 
     c = get_pgconn( self);
     if ((res = PQgetResult( c->conn)) != NULL)
-        pgresult_new( res, c, Qnil, Qnil);
+        pgresult_new( res, self, Qnil, Qnil);
     return Qnil;
 }
 

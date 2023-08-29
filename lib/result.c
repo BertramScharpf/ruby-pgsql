@@ -8,7 +8,6 @@
 #include "conn_quote.h"
 
 
-static void pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn);
 static VALUE pgreserror_new( VALUE result, VALUE cmd, VALUE par);
 
 static struct pgresult_data *pgreserror_result( VALUE self);
@@ -23,7 +22,8 @@ static VALUE pgreserror_diag(    VALUE self, VALUE field);
 static VALUE pgresult_s_translate_results_set( VALUE cls, VALUE fact);
 
 static void pgresult_free( struct pgresult_data *ptr);
-extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par);
+static VALUE pgresult_alloc( VALUE cls);
+extern VALUE pgresult_new( PGresult *result, VALUE conn, VALUE cmd, VALUE par);
 
 extern VALUE pgresult_clear( VALUE self);
 
@@ -72,7 +72,7 @@ pgreserror_new( VALUE result, VALUE cmd, VALUE par)
     VALUE rse, msg;
 
     Data_Get_Struct( result, struct pgresult_data, r);
-    msg = pgconn_mkstring( r->conn, PQresultErrorMessage( r->res));
+    msg = pgconn_mkstring( get_pgconn( r->conn), PQresultErrorMessage( r->res));
     rse = rb_class_new_instance( 1, &msg, rb_ePgResError);
     rb_ivar_set( rse, id_result, result);
     rb_ivar_set( rse, rb_intern( "@command"),    cmd);
@@ -120,7 +120,7 @@ pgreserror_sqlst( VALUE self)
     struct pgresult_data *r;
 
     r = pgreserror_result( self);
-    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_SQLSTATE));
+    return pgconn_mkstring( get_pgconn( r->conn), PQresultErrorField( r->res, PG_DIAG_SQLSTATE));
 }
 
 /*
@@ -136,7 +136,7 @@ pgreserror_primary( VALUE self)
     struct pgresult_data *r;
 
     r = pgreserror_result( self);
-    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_PRIMARY));
+    return pgconn_mkstring( get_pgconn( r->conn), PQresultErrorField( r->res, PG_DIAG_MESSAGE_PRIMARY));
 }
 
 
@@ -153,7 +153,7 @@ pgreserror_detail( VALUE self)
     struct pgresult_data *r;
 
     r = pgreserror_result( self);
-    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_DETAIL));
+    return pgconn_mkstring( get_pgconn( r->conn), PQresultErrorField( r->res, PG_DIAG_MESSAGE_DETAIL));
 }
 
 
@@ -170,7 +170,7 @@ pgreserror_hint( VALUE self)
     struct pgresult_data *r;
 
     r = pgreserror_result( self);
-    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, PG_DIAG_MESSAGE_HINT));
+    return pgconn_mkstring( get_pgconn( r->conn), PQresultErrorField( r->res, PG_DIAG_MESSAGE_HINT));
 }
 
 
@@ -188,7 +188,7 @@ pgreserror_diag( VALUE self, VALUE field)
     struct pgresult_data *r;
 
     r = pgreserror_result( self);
-    return pgconn_mkstring( r->conn, PQresultErrorField( r->res, NUM2INT( field)));
+    return pgconn_mkstring( get_pgconn( r->conn), PQresultErrorField( r->res, NUM2INT( field)));
 }
 
 
@@ -218,23 +218,33 @@ pgresult_free( struct pgresult_data *ptr)
     free( ptr);
 }
 
-void
-pgresult_init( struct pgresult_data *r, PGresult *result, struct pgconn_data *conn)
+
+VALUE
+pgresult_alloc( VALUE cls)
 {
-    r->res     = result;
-    r->conn    = conn;
+    struct pgresult_data *r;
+    VALUE obj;
+
+    obj = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
+    r->res     = NULL;
+    r->conn    = Qnil;
     r->fields  = Qnil;
     r->indices = Qnil;
+    return obj;
 }
 
 VALUE
-pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par)
+pgresult_new( PGresult *result, VALUE conn, VALUE cmd, VALUE par)
 {
     struct pgresult_data *r;
     VALUE res;
 
-    res = Data_Make_Struct( rb_cPgResult, struct pgresult_data, 0, &pgresult_free, r);
-    pgresult_init( r, result, conn);
+    res = rb_class_new_instance( 0, NULL, rb_cPgResult);
+    Data_Get_Struct( res, struct pgresult_data, r);
+    r->res     = result;
+    r->conn    = conn;
+    r->fields  = Qnil;
+    r->indices = Qnil;
     switch (PQresultStatus( result)) {
         case PGRES_EMPTY_QUERY:
         case PGRES_COMMAND_OK:
@@ -322,7 +332,7 @@ pgresult_fields( VALUE self)
         n = PQnfields( r->res);
         ary = rb_ary_new2( n);
         for (i = 0; n; i++, n--) {
-            str = pgconn_mkstring( r->conn, PQfname( r->res, i));
+            str = pgconn_mkstring( get_pgconn( r->conn), PQfname( r->res, i));
             rb_str_freeze( str);
             rb_ary_push( ary, str);
         }
@@ -356,7 +366,7 @@ pgresult_field_indices( VALUE self)
         n = PQnfields( r->res);
         hsh = rb_hash_new();
         for (i = 0; n; i++, n--) {
-            str = pgconn_mkstring( r->conn, PQfname( r->res, i));
+            str = pgconn_mkstring( get_pgconn( r->conn), PQfname( r->res, i));
             rb_str_freeze( str);
             rb_hash_aset( hsh, str, INT2FIX( i));
         }
@@ -401,7 +411,7 @@ pgresult_fieldname( VALUE self, VALUE index)
     struct pgresult_data *r;
 
     Data_Get_Struct( self, struct pgresult_data, r);
-    return pgconn_mkstring( r->conn, PQfname( r->res, NUM2INT( index)));
+    return pgconn_mkstring( get_pgconn( r->conn), PQfname( r->res, NUM2INT( index)));
 }
 
 /*
@@ -424,7 +434,7 @@ pgresult_fieldnum( VALUE self, VALUE name)
 
     StringValue( name);
     Data_Get_Struct( self, struct pgresult_data, r);
-    n = PQfnumber( r->res, pgconn_destring( r->conn, name, NULL));
+    n = PQfnumber( r->res, pgconn_destring( get_pgconn( r->conn), name, NULL));
     if (n == -1)
         rb_raise( rb_eArgError, "Unknown field: %s", RSTRING_PTR( name));
     return INT2FIX( n);
@@ -524,7 +534,7 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
         return Qnil;
 
     if (!translate_results)
-        return pgconn_mkstring( r->conn, string);
+        return pgconn_mkstring( get_pgconn( r->conn), string);
 
     typ = PQftype( r->res, col);
     cls = Qnil;
@@ -575,7 +585,7 @@ pg_fetchresult( struct pgresult_data *r, int row, int col)
         break;
     }
     if (NIL_P( ret)) {
-        ret = pgconn_mkstring( r->conn, string);
+        ret = pgconn_mkstring( get_pgconn( r->conn), string);
         if (RTEST( cls))
             ret = rb_funcall( cls, id_parse, 1, ret);
     }
@@ -758,7 +768,7 @@ pgresult_cmdstatus( VALUE self)
 
     Data_Get_Struct( self, struct pgresult_data, r);
     n = PQcmdStatus( r->res);
-    return n ? pgconn_mkstring( r->conn, n) : Qnil;
+    return n ? pgconn_mkstring( get_pgconn( r->conn), n) : Qnil;
 }
 
 /*
@@ -836,7 +846,7 @@ Init_pgsql_result( void)
 
     rb_define_singleton_method( rb_cPgResult, "translate_results=", pgresult_s_translate_results_set, 1);
 
-    rb_undef_method( CLASS_OF( rb_cPgResult), "new");
+    rb_define_alloc_func( rb_cPgResult, pgresult_alloc);
     rb_define_method( rb_cPgResult, "clear", &pgresult_clear, 0);
     rb_define_alias( rb_cPgResult, "close", "clear");
 

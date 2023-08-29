@@ -205,16 +205,16 @@ VALUE
 pgconn_alloc( VALUE cls)
 {
     struct pgconn_data *c;
-    VALUE r;
+    VALUE obj;
 
-    r = TypedData_Make_Struct( cls, struct pgconn_data, &pgconn_data_data_type, c);
+    obj = TypedData_Make_Struct( cls, struct pgconn_data, &pgconn_data_data_type, c);
     c->conn    = NULL;
 #ifdef RUBY_ENCODING
     c->external = rb_enc_from_encoding( rb_default_external_encoding());
     c->internal = rb_enc_from_encoding( rb_default_internal_encoding());
 #endif
     c->notice  = Qnil;
-    return r;
+    return obj;
 }
 
 /*

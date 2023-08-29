@@ -10,15 +10,15 @@
 
 
 struct pgresult_data {
-    PGresult           *res;
-    struct pgconn_data *conn;
-    VALUE               fields;
-    VALUE               indices;
+    PGresult *res;
+    VALUE     conn;
+    VALUE     fields;
+    VALUE     indices;
 };
 
 
 
-extern VALUE pgresult_new( PGresult *result, struct pgconn_data *conn, VALUE cmd, VALUE par);
+extern VALUE pgresult_new( PGresult *result, VALUE conn, VALUE cmd, VALUE par);
 extern VALUE pgresult_clear( VALUE self);
 extern VALUE pgresult_each( VALUE self);
 extern VALUE pg_fetchrow( struct pgresult_data *r, int num);
