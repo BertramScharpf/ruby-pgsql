@@ -18,11 +18,11 @@ Gem::Specification.new do |s|
   s.name              = "pgsql"
   s.version           = s.extract_definition "PGSQL_VERSION"
   s.summary           = "PostgreSQL-API for Ruby"
-  s.description       = <<EOT
-This is not the official PostgreSQL library that was originally written by Guy
-Decoux. As the project wasn't maintained a long time after Guy's decease, I
-decided to fork my own project.
-EOT
+  s.description       = <<~EOT
+    This is not the official PostgreSQL library that was originally written by
+    Guy Decoux. As the project wasn't maintained a long time after Guy's
+    decease, I decided to create my own project.
+  EOT
   s.license           = "BSD-2-Clause"
   s.authors           = [ "Bertram Scharpf"]
   s.email             = "<software@bertram-scharpf.de>"
