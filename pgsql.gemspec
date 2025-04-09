@@ -17,41 +17,31 @@ end
 Gem::Specification.new do |s|
   s.name              = "pgsql"
   s.version           = s.extract_definition "PGSQL_VERSION"
+  s.authors           = [ "Bertram Scharpf"]
+  s.email             = "<software@bertram-scharpf.de>"
+  s.homepage          = "https://github.com/BertramScharpf/ruby-pgsql.git"
+  s.license           = "BSD-2-Clause"
+
   s.summary           = "PostgreSQL-API for Ruby"
   s.description       = <<~EOT
     This is not the official PostgreSQL library that was originally written by
     Guy Decoux. As the project wasn't maintained a long time after Guy's
     decease, I decided to create my own project.
   EOT
-  s.license           = "BSD-2-Clause"
-  s.authors           = [ "Bertram Scharpf"]
-  s.email             = "<software@bertram-scharpf.de>"
-  s.homepage          = "http://www.bertram-scharpf.de/software/pgsql"
 
-  s.requirements      = "PostgreSQL"
-  s.add_dependency      "autorake", "~>2.0"
-  s.add_dependency      "rake",     "~>13.0"
+  s.required_ruby_version = ">= 3.1.0"
+  s.requirements          = "PostgreSQL"
+  s.add_dependency          "autorake", "~>2.0"
+  s.add_dependency          "rake",     "~>13.0"
 
   s.extensions        = "lib/mkrf_conf"
+  s.files             = %w(lib/Rakefile lib/mkrf_conf) + Dir[ "lib/**/*.[ch]"]
+
   s.executables       = %w(
                         )
-  s.files             = %w(
-                          lib/Rakefile
-                          lib/mkrf_conf
-                          lib/undef.h
-                          lib/module.h
-                          lib/module.c
-                          lib/conn.h
-                          lib/conn.c
-                          lib/conn_quote.h
-                          lib/conn_quote.c
-                          lib/conn_exec.h
-                          lib/conn_exec.c
-                          lib/result.h
-                          lib/result.c
-                        )
+
   s.extra_rdoc_files = %w(
-                          README
+                          README.md
                           LICENSE
                         )
 
